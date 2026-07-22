@@ -5,6 +5,18 @@ The arrows tell you what these files contain (if you want to package them yourse
     --> Contains the Binutils source tree in a subdirectory "binutils".
         Source is available here: http://www.gnu.org/software/binutils
 
+- bison.tar.bz2
+    --> Contains the Bison source tree in a subdirectory "bison".
+        Source is available here: https://www.gnu.org/software/bison
+
+- cmake.tar.bz2
+    --> Contains the CMake source tree in a subdirectory "cmake".
+        Source is available here: https://cmake.org
+
+- flex.tar.bz2
+    --> Contains the Flex source tree in a subdirectory "flex".
+        Source is available here: https://github.com/westes/flex
+
 - gcc.tar.bz2
     --> Contains the GCC source tree (core and g++) in a subdirectory "gcc".
         Source is available here: http://gcc.gnu.org
@@ -13,19 +25,18 @@ The arrows tell you what these files contain (if you want to package them yourse
     --> Contains the GMP source tree in a subdirectory "gmp".
         Source is available here: http://gmplib.org
 
-- mingw_runtime_dev.tar.bz2
-    --> Created by RosBE-Windows' "buildtoolchain.sh" script from its mingw_runtime.tar.bz2 package.
-        That mingw_runtime.tar.bz2 package contains the MinGW Runtime source tree in a subdirectory "mingw_runtime".
-        Its source is available here: http://sourceforge.net/projects/mingw
+- mingw_w64.tar.bz2
+    --> Contains the MinGW-w64 source tree in a subdirectory "mingw_w64".
+        Source is available here: https://www.mingw-w64.org
+
+- mpc.tar.bz2
+    --> Contains the MPC source tree in a subdirectory "mpc".
+        Source is available here: https://www.multiprecision.org
 
 - mpfr.tar.bz2
     --> Contains the MPFR source tree in a subdirectory "mpfr".
         Source is available here: http://mpfr.org
 
-- nasm.tar.bz2
-    --> Contains the NASM source tree in a subdirectory "nasm".
-        Source is available here: http://sourceforge.net/projects/nasm/files
-
-- w32api.tar.bz2
-    --> Contains the "include" and "lib" subdirectories of the w32api package.
-        Source is available here: http://sourceforge.net/projects/mingw/files
+- ninja.tar.bz2
+    --> Contains the Ninja source tree in a subdirectory "ninja".
+        Source is available here: https://ninja-build.org
