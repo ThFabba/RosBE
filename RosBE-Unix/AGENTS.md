@@ -70,6 +70,29 @@ choose the validation depth appropriate for a given PR.
 - [ ] GitHub Actions CI workflow — needs to be created
 
 
+## Next Actions / Decision Points
+
+Work through these items in order unless a later item becomes blocked on host
+or CI constraints:
+
+1. Establish validation for the **existing** RosBE-Unix flow before adding new
+   automation:
+   - Verify the public `RosBE-Unix-2.2.1.tar.bz2` can be downloaded, installed,
+     and smoke-tested in the target CI environment.
+   - Verify the source archives referenced by `Git-Readme.txt` can be used to
+     build a fresh package with `makepackage.sh`.
+2. Introduce `compare-packages.sh` so the repackaged output can be compared to
+   the public 2.2.1 release while tolerating the known historical differences.
+3. Introduce `fetch-sources.sh` to replace the manual source-preparation step
+   and connect it to `makepackage.sh`.
+4. Expand CI gradually from static validation to package comparison, then to
+   installation via `RosBE-Builder.sh`, and only later to deeper end-to-end
+   validation such as building ReactOS with the installed toolchain.
+5. Keep a parallel upstream plan: code intended for upstream should remain
+   reviewable without relying on agent-specific workflow files or process
+   assumptions from this fork.
+
+
 ## Script Design
 
 ### `fetch-sources.sh`
@@ -78,8 +101,10 @@ choose the validation depth appropriate for a given PR.
 
 **What it does:**
 
-1. Create a working directory (default: `~/.rosbe-work`) and a log
-   subdirectory inside it.
+1. Create a working directory without assuming `~/.rosbe-work` is appropriate.
+   Prefer behavior consistent with the existing RosBE scripts: work from inside
+   the repository checkout when practical, ensure each run starts from a clean
+   tree, and make any alternate work directory configurable.
 2. Download each upstream source archive using `curl`.
 3. Verify SHA-256 hashes with `sha256sum -c`.
 4. For each tool, extract the archive, apply any patches, run any required
@@ -221,8 +246,21 @@ Using different versions will produce a larger diff in the flex source.  CI
 and testing environments should either install the exact versions above to
 minimise the diff, or accept the larger diff by adding more flex exclusions.
 
+To reduce the remaining diff further, investigate whether the historical RosBE
+package was prepared with Debian-patched autotools and whether generated
+documentation timestamps can be normalised during preparation.
+
 All other tools (Bison, GCC, mingw-w64, GMP, MPC, MPFR, Ninja) should match
 the reference exactly.
+
+**Note on CMake:** Some remaining differences appear to come from using
+`git archive`.  If closer reproduction is needed, prefer a clean `git clone`
+and `checkout` workflow over archive snapshots when preparing the CMake source.
+
+**Note on binutils:** Some remaining differences appear to come from extracting
+new content over an old tree and from downstream distro patching.  Always
+prepare binutils from a clean extraction, and compare against Debian patchsets
+if exact historical reproduction becomes necessary.
 
 
 ## Shell Script Style Conventions
@@ -259,6 +297,9 @@ scripts must.
   (e.g. `rs_scriptdir`, `rs_workdir`, `rs_bison_version`).
 - Local variables inside functions may omit the prefix and use `local`.
 - Always double-quote variable expansions: `"$rs_var"`, `"${rs_var}"`.
+  This is a correctness requirement for paths containing spaces, not merely a
+  style preference.  Future validation should include at least one path-with-
+  spaces scenario where practical.
 
 ### Error handling
 
@@ -266,10 +307,12 @@ scripts must.
   that makes failures fail-fast.  The existing scripts check `$?` manually,
   but new scripts should prefer `set -e` for safety (discussed with the
   project owner; agreed to keep).
-- Use `rs_do_command` from `setuplibrary.sh` to run build commands.  It logs
-  output to `$rs_workdir/build.log`, prints a short status line, and calls
-  `rs_check_run` which exits with a clear message on failure.  This replaces
-  the prototype's per-step `{ echo "step failed. See log"; exit 1; }` pattern.
+- Use `rs_do_command` from `setuplibrary.sh` to run build commands.  It writes
+  command output to `$rs_workdir/build.log`, prints a short status line, and
+  calls `rs_check_run` which exits with a clear message on failure.  The log
+  path is reused across commands and deleted on success by the current helper
+  implementation.  This replaces the prototype's per-step
+  `{ echo "step failed. See log"; exit 1; }` pattern.
 - For steps that `rs_do_command` cannot wrap (e.g. `patch`, `unzip`), redirect
   output to `$rs_workdir/build.log` and let `set -e` handle failure, or use:
   ```bash
@@ -278,8 +321,8 @@ scripts must.
 
 ### Logging
 
-- Use a single log file: `$rs_workdir/build.log`, consistent with
-  `setuplibrary.sh`.  Do **not** use per-step log files as the prototype did.
+- Use the `setuplibrary.sh` log path `$rs_workdir/build.log` rather than
+  per-step log files, unless there is a strong reason to diverge.
 - Print a short, human-readable status line to stdout for each major step
   (e.g. `echo "Preparing bison..."`).
 
@@ -295,7 +338,8 @@ scripts must.
 
 ### Conditionals and tests
 
-- Use `[[ ]]` (bashism) rather than `[ ]` — consistent with existing scripts.
+- Prefer `[[ ]]` in new bash scripts.  Existing RosBE scripts currently mix
+  `[[ ]]` and `[ ]`, so match the surrounding style when touching older code.
 - Use `if`/`elif`/`else`/`fi` blocks; avoid single-line `&&` chains for
   anything beyond trivial guard clauses.
 
@@ -349,6 +393,45 @@ Agents **must** follow this workflow before declaring any task complete:
 
 5. **CI:** Once the GitHub Actions workflow exists, ensure it passes.
 
+### CI rollout order
+
+Because the repository currently has no automated validation, CI should first
+cover the **existing** RosBE-Unix functionality and only then extend to the
+new automation work.  A good rollout order is:
+
+1. Static checks for new scripts (`bash -n`, `shellcheck`).
+2. Smoke-test the published `RosBE-Unix-2.2.1.tar.bz2` in CI to confirm the
+   current release can run in the hosted environment.
+3. Validate `makepackage.sh` using the published source archives referenced in
+   `Git-Readme.txt`.
+4. Add `compare-packages.sh` to connect the existing packaging flow to the
+   published reference package.
+5. Add `fetch-sources.sh` validation once the existing package/repackage flow
+   is stable.
+6. Expand to `RosBE-Builder.sh` installation coverage and, if feasible later,
+   a ReactOS build using the installed toolchain.
+
+This "backwards first" sequence is acceptable because it provides the clearest
+regression story for upstream reviewers: first prove the current release still
+works, then prove the repository can reproduce it, then replace manual steps
+with automation.
+
+
+## Fork and Upstream Strategy
+
+Development happens in this fork, but the eventual submission target is the
+upstream RosBE repository.
+
+- `AGENTS.md` is fork-only process documentation and must **not** be proposed
+  for upstream.
+- Prefer to finish development and validation in this fork before preparing the
+  upstream PR series.
+- While developing here, keep an explicit upstream plan: separate fork-only
+  workflow/docs changes from code that should later be proposed upstream.
+- Upstream-facing PRs should emphasise regression coverage and testing results,
+  especially for existing functionality such as `makepackage.sh`,
+  `RosBE-Builder.sh`, and the published RosBE 2.2.1 package/install flow.
+
 If an integration test cannot be run in your environment (e.g. no internet
 access or missing build tools), state this explicitly in your PR description
 and confirm that at least steps 1 and 2 pass.
@@ -358,6 +441,26 @@ and confirm that at least steps 1 and 2 pass.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — CI ordering and upstream-planning updates (update-readme branch)**
+
+- Clarified that `fetch-sources.sh` must not assume `~/.rosbe-work`; new work
+  should stay consistent with the existing in-repo RosBE workflow unless there
+  is a strong reason to diverge.
+- Added an explicit roadmap that starts by validating the published RosBE 2.2.1
+  package and existing `makepackage.sh` / `RosBE-Builder.sh` flow before adding
+  new automation layers.
+- Documented that a "backwards first" CI rollout is acceptable because it gives
+  the best regression story for future upstream PRs.
+- Recorded additional reproducibility notes: flex diffs may require Debian-
+  patched host tools and timestamp normalisation; CMake may need `git clone`
+  rather than `git archive`; binutils must be prepared from a clean tree.
+- Clarified that double-quoting is required for path correctness, not just
+  style.
+- Documented that `AGENTS.md` is fork-only guidance and should not go upstream;
+  development in this fork should still maintain an explicit upstream PR plan.
 
 ---
 
