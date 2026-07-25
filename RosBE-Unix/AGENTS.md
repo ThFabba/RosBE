@@ -67,7 +67,7 @@ choose the validation depth appropriate for a given PR.
 - [ ] `fetch-sources.sh` — needs to be created (see design notes below)
 - [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
 - [ ] `compare-packages.sh` — needs to be created (see design notes below)
-- [ ] GitHub Actions CI workflow — needs to be created
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (Next Action 1)
 
 
 ## Next Actions
@@ -463,6 +463,56 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — CI environment investigation and Next Action 1 workflow
+(download-rosbe-installer-and-setup branch)**
+
+Investigated the GitHub Actions runner environment and designed the first CI
+job (`Next Action 1`).  Key findings:
+
+- **Runner OS:** Ubuntu 24.04 LTS (`ubuntu-latest` as of July 2026).
+- **vCPUs:** 4.
+- **RAM:** ~16 GB.
+- **Disk:** ~80 GB free on the workspace mount — sufficient for the toolchain
+  build and the ReactOS source checkout + build artifacts.
+- **GCC version on ubuntu-latest:** 13.3.0.  `cmake.patch` (which fixes a
+  compilation error in CMake's bootstrap on GCC 16+) is therefore NOT applied
+  in this workflow.  If the runner is ever upgraded to a distro that defaults
+  to GCC 16+, a patch step must be added before running `RosBE-Builder.sh`.
+- **Internet access:** GitHub Actions runners have full internet access.
+  SourceForge, `ftp.gnu.org`, and `svn.reactos.org` are all reachable.
+  (In the agent sandbox used during development, only `github.com` was
+  accessible; all other hosts were blocked by the DNS monitoring proxy.  This
+  is a sandbox limitation, not a GitHub Actions limitation.)
+
+Decided on two-job workflow structure:
+
+1. **`install-rosbe` (runs on every push/PR):** Downloads
+   `RosBE-Unix-2.2.1.tar.bz2` from SourceForge, installs it via
+   `RosBE-Builder.sh` with a non-interactive install directory argument,
+   then verifies the toolchain with a cross-compile smoke test (compiling a
+   trivial `int main(void) { return 0; }` to a PE/COFF executable).
+   Timeout: 120 minutes (toolchain build typically takes 60–90 min on 4
+   vCPUs; 120 min gives headroom without masking genuine hangs).
+
+2. **`build-reactos` (manual `workflow_dispatch` only):** Repeats the
+   toolchain installation, then performs a shallow clone of
+   `reactos/reactos`, runs CMake to configure the build, and builds the
+   `bootcd` target with Ninja.  Estimated additional wall time: 60–120
+   minutes.  Total end-to-end time: roughly 2–3 hours.
+
+Constraint documented: a full ReactOS build is feasible within the 6-hour
+GitHub Actions job limit (total ~2–3 hours), but is too expensive to run on
+every push or pull request.  The reduced smoke test (cross-compile hello.c
+with the installed cross-compiler) still exercises RosBE-Builder.sh
+installation end-to-end and is appropriate for routine PR validation.
+
+The `build-reactos` job uses the ReactOS CMake toolchain file at
+`sdk/cmake/toolchain-gcc.cmake` and the `bootcd` build target.  The exact
+incantation may need adjustment if the ReactOS build system changes; treat it
+as a starting point and update when running the job for the first time.
 
 ---
 
