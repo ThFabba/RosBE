@@ -476,6 +476,41 @@ have context.  Add new entries at the top.
 
 ---
 
+**2026-07 — RosBE.sh testability and build-reactos PR trigger
+(download-rosbe-installer-and-setup branch)**
+
+Two notes from the end-of-phase review:
+
+**RosBE.sh testability — future refactoring goal:**
+`RosBE.sh` is the final end-user product of this project: it sets up the RosBE
+environment variables and then launches an interactive `bash --rcfile` session.
+Because it ends by spawning an interactive shell, it cannot be sourced or invoked
+non-interactively in CI without blocking or immediately exiting.  The CI
+`install-rosbe` action currently replicates the equivalent environment setup
+(PATH, ROS_ARCH, BISON_PKGDATADIR, HOST/CFLAGS/CXXFLAGS/LDFLAGS) manually,
+bypassing `RosBE.sh` entirely.  Skipping the final user-facing script in CI is
+not ideal.
+
+A future refactoring goal is to restructure `RosBE.sh` so that its environment
+setup can be tested independently of the interactive shell launch.  One approach
+would be to extract the variable-export logic into a sourced library file and
+have `RosBE.sh` call it — CI could then source that library file to verify the
+exports, while `RosBE.sh` continues to spawn the interactive session as before.
+This refactoring should be proposed upstream when the Linux CI pipeline is stable.
+
+**build-reactos PR trigger:**
+The `workflow_dispatch` button only appears in the GitHub Actions UI when the
+workflow file exists on the repository default branch.  While the workflow lives
+only on a feature branch, manual dispatch is unavailable.  Added a
+`pull_request: types: [labeled]` trigger with a job-level `if:` condition
+(`contains(github.event.pull_request.labels.*.name, 'ci: build-reactos')`) to
+allow the workflow to be triggered during a PR review by applying the
+`ci: build-reactos` label.  This avoids running the expensive (~2–3 hour) build
+on every PR push while still making the workflow accessible before it lands on
+the default branch.
+
+---
+
 **2026-07 — configure.sh, RosBE environment setup, reactos_ref, and composite action split
 (download-rosbe-installer-and-setup branch)**
 

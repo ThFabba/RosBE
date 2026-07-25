@@ -1,14 +1,18 @@
 # Build ReactOS using the published RosBE-Unix 2.2.1 toolchain.
 #
-# This workflow is MANUAL TRIGGER ONLY — it is too slow for routine CI.
-# It installs the toolchain from scratch (~60–90 minutes) and then performs a
-# full ReactOS build (~60–120 minutes), for a total wall time of roughly 2–3
-# hours.  Running this on every push or pull request would be impractical on
-# standard GitHub Actions runners.
+# This workflow is too slow for routine CI — it installs the toolchain from
+# scratch (~60–90 minutes) and then performs a full ReactOS build
+# (~60–120 minutes), for a total wall time of roughly 2–3 hours.
 #
-# Trigger with:
+# Triggers:
 #
-#   Actions → RosBE-Unix — Build ReactOS → Run workflow
+#   1. Manual dispatch (after the workflow exists on the default branch):
+#        Actions → RosBE-Unix — Build ReactOS → Run workflow
+#
+#   2. Pull request — apply the "ci: build-reactos" label to a PR to
+#      trigger a single run.  This is useful while the workflow lives only
+#      on a feature branch and the manual-dispatch button is not yet
+#      available in the GitHub UI.
 #
 # Resource notes:
 #   - The download step lives in .github/actions/download-rosbe/action.yml.
@@ -33,6 +37,8 @@ on:
         required: false
         default: ''
         type: string
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
@@ -46,6 +52,12 @@ jobs:
   build-reactos:
     name: Install RosBE 2.2.1 and build ReactOS (bootcd)
     runs-on: ubuntu-latest
+    # For pull_request events, only run when the "ci: build-reactos" label is
+    # applied.  workflow_dispatch runs always.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'ci: build-reactos'))
     timeout-minutes: 300
     env:
       ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
