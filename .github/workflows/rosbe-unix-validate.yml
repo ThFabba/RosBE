@@ -44,6 +44,9 @@ on:
         default: 'false'
         type: boolean
 
+permissions:
+  contents: read
+
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   # Job 1: Install the published release and verify the cross-compiler works.
