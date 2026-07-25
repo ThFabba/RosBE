@@ -1,0 +1,110 @@
+# Build ReactOS using the published RosBE-Unix 2.2.1 toolchain.
+#
+# This workflow is too slow for routine CI — it installs the toolchain from
+# scratch (~60–90 minutes) and then performs a full ReactOS build
+# (~60–120 minutes), for a total wall time of roughly 2–3 hours.
+#
+# Triggers:
+#
+#   1. Manual dispatch (after the workflow exists on the default branch):
+#        Actions → RosBE-Unix — Build ReactOS → Run workflow
+#
+#   2. Pull request — apply the "ci: build-reactos" label to a PR to
+#      trigger a single run.  This is useful while the workflow lives only
+#      on a feature branch and the manual-dispatch button is not yet
+#      available in the GitHub UI.
+#
+# Resource notes:
+#   - The download step lives in .github/actions/download-rosbe/action.yml.
+#   - The install step lives in .github/actions/install-rosbe/action.yml.
+#     It sets up the RosBE environment (PATH, ROS_ARCH, etc.) for subsequent
+#     steps, equivalent to what sourcing the installed RosBE.sh does.
+#   - ReactOS is configured via its own configure.sh, which requires ROS_ARCH
+#     to be set (done by the install-rosbe action) and places build output in
+#     output-MinGW-i386/ inside the ReactOS source tree.
+#   - The exact ReactOS ref (branch, tag, or commit SHA) is configurable;
+#     leave it blank to use the default branch.
+
+name: RosBE-Unix — Build ReactOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      reactos_ref:
+        description: >-
+          ReactOS git ref to check out (branch, tag, or commit SHA).
+          Leave blank to use the default branch.
+        required: false
+        default: ''
+        type: string
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Install the toolchain, then build ReactOS.
+  # A full ReactOS build (~60–120 min) is feasible within the 6-hour GitHub
+  # Actions job limit but too expensive for routine CI.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-reactos:
+    name: Install RosBE 2.2.1 and build ReactOS (bootcd)
+    runs-on: ubuntu-latest
+    # For pull_request events, only run when the "ci: build-reactos" label is
+    # applied.  workflow_dispatch runs always.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'ci: build-reactos'))
+    timeout-minutes: 300
+    env:
+      ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
+
+    steps:
+      - name: Checkout repository
+        # Required so that the local composite actions are available on disk.
+        uses: actions/checkout@v4
+
+      - name: Download RosBE package
+        id: download
+        uses: ./.github/actions/download-rosbe
+
+      - name: Install RosBE and run smoke test
+        uses: ./.github/actions/install-rosbe
+        with:
+          tarball_path: ${{ steps.download.outputs.tarball_path }}
+          install_dir: ${{ env.ROSBE_INSTALL_DIR }}
+
+      - name: Record disk usage before ReactOS checkout
+        run: df -h .
+
+      - name: Checkout ReactOS source (shallow)
+        uses: actions/checkout@v4
+        with:
+          repository: reactos/reactos
+          # Empty ref uses the repository default branch.
+          ref: ${{ inputs.reactos_ref }}
+          fetch-depth: 1
+          path: reactos
+
+      - name: Record disk usage after ReactOS checkout
+        run: df -h .
+
+      - name: Configure ReactOS build
+        # Use ReactOS's own configure.sh, which reads ROS_ARCH from the
+        # environment (set by install-rosbe) and places build output in
+        # reactos/output-MinGW-i386/.  Pass -DCMAKE_BUILD_TYPE=Debug for
+        # a debug build (the install-rosbe action has already put the RosBE
+        # cmake and ninja binaries on PATH).
+        run: |
+          cd "$GITHUB_WORKSPACE/reactos"
+          ./configure.sh -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build ReactOS (bootcd target)
+        run: ninja -C "$GITHUB_WORKSPACE/reactos/output-MinGW-i386" bootcd
+
+      - name: Record disk usage after build
+        if: always()
+        run: df -h .

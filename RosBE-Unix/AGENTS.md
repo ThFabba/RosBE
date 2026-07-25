@@ -32,6 +32,13 @@ hard to:
 
 Automate the entire packaging pipeline in the following phases:
 
+**Long-term platform goal:** Fix RosBE-Unix support on macOS running Apple Silicon
+(M-series).  GitHub provides `macos-14` and `macos-15` hosted runners, both of
+which are native arm64 (`macos-latest` resolves to `macos-15` as of mid-2026).
+Adding CI coverage for macOS on Apple Silicon is a future goal; do not attempt
+it until the Linux pipeline is stable and the required porting work is done.
+
+
 1. **Fetch & prepare sources** — Download upstream tarballs, verify hashes,
    apply patches, run any required build-time preparation (e.g. flex's
    `autogen.sh` + `make dist`), and repack everything in the layout expected
@@ -67,7 +74,7 @@ choose the validation depth appropriate for a given PR.
 - [ ] `fetch-sources.sh` — needs to be created (see design notes below)
 - [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
 - [ ] `compare-packages.sh` — needs to be created (see design notes below)
-- [ ] GitHub Actions CI workflow — needs to be created
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (Next Action 1)
 
 
 ## Next Actions
@@ -414,9 +421,12 @@ established by the previous.
 
 1. **Install the published release (`Next Action 1`)** — Download
    `RosBE-Unix-2.2.1.tar.bz2`, install it via `RosBE-Builder.sh`, and
-   compile a ReactOS build with the resulting toolchain.  This is the first CI
-   job added and validates the current release in our hosted environment before
-   any code is changed.
+   verify with a cross-compile smoke test.  This is the first CI job added and
+   validates the current release in our hosted environment before any code is
+   changed.  A separate manual-trigger-only workflow (`rosbe-unix-build-reactos.yml`)
+   then installs the toolchain again from scratch and builds the `bootcd` target.
+   The shared install steps live in the composite action at
+   `.github/actions/install-rosbe/action.yml` to avoid duplication.
 
 2. **Repackage from pre-built archives (`Next Action 2`)** — Download the
    pre-built source archives from
@@ -463,6 +473,223 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — RosBE.sh testability and build-reactos PR trigger
+(download-rosbe-installer-and-setup branch)**
+
+Two notes from the end-of-phase review:
+
+**RosBE.sh testability — future refactoring goal:**
+`RosBE.sh` is the final end-user product of this project: it sets up the RosBE
+environment variables and then launches an interactive `bash --rcfile` session.
+Because it ends by spawning an interactive shell, it cannot be sourced or invoked
+non-interactively in CI without blocking or immediately exiting.  The CI
+`install-rosbe` action currently replicates the equivalent environment setup
+(PATH, ROS_ARCH, BISON_PKGDATADIR, HOST/CFLAGS/CXXFLAGS/LDFLAGS) manually,
+bypassing `RosBE.sh` entirely.  Skipping the final user-facing script in CI is
+not ideal.
+
+A future refactoring goal is to restructure `RosBE.sh` so that its environment
+setup can be tested independently of the interactive shell launch.  One approach
+would be to extract the variable-export logic into a sourced library file and
+have `RosBE.sh` call it — CI could then source that library file to verify the
+exports, while `RosBE.sh` continues to spawn the interactive session as before.
+This refactoring should be proposed upstream when the Linux CI pipeline is stable.
+
+**build-reactos PR trigger:**
+The `workflow_dispatch` button only appears in the GitHub Actions UI when the
+workflow file exists on the repository default branch.  While the workflow lives
+only on a feature branch, manual dispatch is unavailable.  Added a
+`pull_request: types: [labeled]` trigger with a job-level `if:` condition
+(`contains(github.event.pull_request.labels.*.name, 'ci: build-reactos')`) to
+allow the workflow to be triggered during a PR review by applying the
+`ci: build-reactos` label.  This avoids running the expensive (~2–3 hour) build
+on every PR push while still making the workflow accessible before it lands on
+the default branch.
+
+---
+
+**2026-07 — configure.sh, RosBE environment setup, reactos_ref, and composite action split
+(download-rosbe-installer-and-setup branch)**
+
+Several improvements to the `build-reactos` workflow based on review:
+
+**RosBE environment setup — use RosBE.sh equivalence, not manual PATH editing:**
+The installed `RosBE.sh` is an interactive script that ends with
+`bash --rcfile "$_ROSBE_ROSSCRIPTDIR/RosBE-rc"`, which opens a new interactive
+bash session.  Sourcing it in a CI `run:` step sets the env vars in the current
+shell, but spawns a child bash that blocks (or exits immediately on EOF), which
+is fragile.  Instead, the `install-rosbe` composite action now explicitly
+exports the same variables that `RosBE.sh` would set, using `$GITHUB_PATH` and
+`$GITHUB_ENV` so they persist to subsequent steps in the job:
+- `$install_dir/i386/bin` and `$install_dir/bin` prepended to `PATH`
+- `ROS_ARCH=i386`
+- `BISON_PKGDATADIR=$install_dir/share/bison` (so Bison finds its data files
+  even if the install tree has been relocated)
+- `HOST`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` cleared (to avoid cross-contamination
+  from the host environment)
+
+**ReactOS configuration — use configure.sh, not raw cmake:**
+The `build-reactos` workflow now uses ReactOS's own `configure.sh` script
+(from the root of the checked-out ReactOS source):
+```
+cd "$GITHUB_WORKSPACE/reactos"
+./configure.sh -DCMAKE_BUILD_TYPE=Debug
+```
+`configure.sh` reads `ROS_ARCH` from the environment (set by `install-rosbe`),
+creates the build directory at `output-MinGW-i386/` inside the source tree, and
+runs cmake with `-DCMAKE_TOOLCHAIN_FILE=toolchain-gcc.cmake` automatically.
+The build step is then: `ninja -C "$GITHUB_WORKSPACE/reactos/output-MinGW-i386" bootcd`.
+Debug build is used (`-DCMAKE_BUILD_TYPE=Debug`) rather than Release.
+
+**Configurable ReactOS git ref:**
+The `build-reactos` workflow accepts a `reactos_ref` `workflow_dispatch` input
+(branch, tag, or commit SHA).  An empty value (the default) checks out the
+repository default branch.  This allows testing against a specific ReactOS
+commit or release tag without changing the workflow file.
+
+**Composite action split — download vs. install:**
+The former single `install-rosbe` composite action has been split into two:
+- `.github/actions/download-rosbe/action.yml` — downloads the official
+  `RosBE-Unix-2.2.1.tar.bz2` from SourceForge and outputs the local tarball
+  path.  No inputs required.
+- `.github/actions/install-rosbe/action.yml` — takes `tarball_path` and
+  `install_dir` as inputs; extracts the tarball (finding `RosBE-Builder.sh`
+  dynamically so it works regardless of version subdirectory name), installs
+  the toolchain, runs verify and smoke-test, and sets up the environment.
+
+This split is intentional preparation for the next CI step (Next Action 2):
+when we build our own package with `makepackage.sh`, we can provide that
+tarball directly to `install-rosbe` instead of downloading the official
+release, without duplicating any install logic.
+
+**2026-07 — Refactor to composite action + two independent workflows
+(download-rosbe-installer-and-setup branch)**
+
+Observed that GitHub Actions does not allow a skipped job to be resumed later
+in the same run.  The artifact-based two-job design (upload toolchain in job 1,
+download in job 2 when `run_reactos_build=true`) therefore provides no
+practical value: triggering a ReactOS build always requires starting a fresh
+workflow run that re-installs the toolchain regardless.
+
+Refactored to two fully independent workflows, with shared steps extracted into
+a local composite action to avoid duplication:
+
+- **`.github/actions/install-rosbe/action.yml`** — composite action containing
+  all install and smoke-test steps (apt dependencies, tarball download,
+  extraction, `RosBE-Builder.sh`, verify, cross-compile check).  The caller
+  passes the install directory as the `install_dir` input.  Both workflows
+  require an `actions/checkout` step first so the local action is available on
+  disk.
+
+- **`rosbe-unix-validate.yml`** — triggers on push/PR; single `install-rosbe`
+  job; no artifact; calls the composite action.  This is the routine fast CI
+  path (~60–90 min).
+
+- **`rosbe-unix-build-reactos.yml`** — `workflow_dispatch` only; single
+  `build-reactos` job; calls the composite action then checks out ReactOS and
+  builds `bootcd`.  This is the slow full-validation path (~2–3 hours total).
+
+The artifact upload/download and the "Restore executable permissions" workaround
+are removed: since both workflows always install fresh, there is no artifact to
+download and no need to repair permissions.
+
+---
+
+**2026-07 — CI style, paths-with-spaces finding, and macOS future goal
+(download-rosbe-installer-and-setup branch)**
+
+Three topics discussed with the project owner after the Next Action 1 workflow
+was working:
+
+**CI YAML style — inline steps vs. extracted shell scripts:**
+The community consensus for GitHub Actions is more nuanced than for Bamboo or
+Jenkins.  Inline `run:` steps are appropriate when the logic is pure orchestration
+(download, extract, call an external script, check a file) and the real business
+logic lives in a proper shell script already checked into the repo — as is the
+case here (`RosBE-Builder.sh` does the heavy lifting; the workflow steps are
+glue).  Extract to a standalone shell script when: (a) the `run:` block is long
+and has real branching, (b) the same logic is needed in more than one workflow
+file, or (c) the logic needs to be unit-tested independently.  Use a *composite
+action* (`.github/actions/my-action/action.yml`) when you need to share a
+sequence of named steps across multiple workflow files and want those steps
+visible individually in the Actions UI.  **The current workflow is fine as-is.**
+
+**Paths with spaces — existing scripts are not safe:**
+Investigated whether the CI setup should test install paths containing spaces.
+Conclusion: the existing RosBE-Unix scripts are not safe with paths containing
+spaces and CI should not test that scenario yet.
+
+- `scripts/setuplibrary.sh` explicitly aborts if the script directory contains
+  a space: it checks for a space in `$rs_scriptdir` early on and exits with an
+  error message.
+- `RosBE-Builder.sh` still has some unquoted variable expansions (e.g. the
+  `ln -s ... $rs_archprefixdir/...` lines), so install paths with spaces are
+  not reliably safe.
+
+Treat path-with-spaces support as a **future hardening task**: fix the scripts
+first, then add a CI matrix entry that exercises a spaced install path.  The
+style convention in this file (always double-quote variable expansions) is
+already documenting the right practice for new scripts.
+
+**macOS Apple Silicon — long-term future goal:**
+A long-term goal is to fix RosBE-Unix support on macOS running Apple Silicon
+and add CI validation for that platform.  GitHub provides `macos-14` and
+`macos-15` hosted runners that are native arm64 (`macos-latest` resolves to
+`macos-15` as of mid-2026).  Do not pursue this until the Linux pipeline is
+stable and the required porting work has been identified.
+
+---
+
+**2026-07 — CI environment investigation and Next Action 1 workflow
+(download-rosbe-installer-and-setup branch)**
+
+Investigated the GitHub Actions runner environment and designed the first CI
+job (`Next Action 1`).  Key findings:
+
+- **Runner OS:** Ubuntu 24.04 LTS (`ubuntu-latest` as of July 2026).
+- **vCPUs:** 4.
+- **RAM:** ~16 GB.
+- **Disk:** ~80 GB free on the workspace mount — sufficient for the toolchain
+  build and the ReactOS source checkout + build artifacts.
+- **GCC version on ubuntu-latest:** 13.3.0.  `cmake.patch` (which fixes a
+  compilation error in CMake's bootstrap on GCC 16+) is therefore NOT applied
+  in this workflow.  If the runner is ever upgraded to a distro that defaults
+  to GCC 16+, a patch step must be added before running `RosBE-Builder.sh`.
+- **Internet access:** GitHub Actions runners have full internet access.
+  SourceForge, `ftp.gnu.org`, and `svn.reactos.org` are all reachable.
+  (In the agent sandbox used during development, only `github.com` was
+  accessible; all other hosts were blocked by the DNS monitoring proxy.  This
+  is a sandbox limitation, not a GitHub Actions limitation.)
+
+Decided on two-job workflow structure:
+
+1. **`install-rosbe` (runs on every push/PR):** Downloads
+   `RosBE-Unix-2.2.1.tar.bz2` from SourceForge, installs it via
+   `RosBE-Builder.sh` with a non-interactive install directory argument,
+   then verifies the toolchain with a cross-compile smoke test (compiling a
+   trivial `int main(void) { return 0; }` to a PE/COFF executable).
+   Timeout: 120 minutes (toolchain build typically takes 60–90 min on 4
+   vCPUs; 120 min gives headroom without masking genuine hangs).
+
+2. **`build-reactos` (manual `workflow_dispatch` only):** Repeats the
+   toolchain installation, then performs a shallow clone of
+   `reactos/reactos`, runs CMake to configure the build, and builds the
+   `bootcd` target with Ninja.  Estimated additional wall time: 60–120
+   minutes.  Total end-to-end time: roughly 2–3 hours.
+
+Constraint documented: a full ReactOS build is feasible within the 6-hour
+GitHub Actions job limit (total ~2–3 hours), but is too expensive to run on
+every push or pull request.  The reduced smoke test (cross-compile hello.c
+with the installed cross-compiler) still exercises RosBE-Builder.sh
+installation end-to-end and is appropriate for routine PR validation.
+
+The `build-reactos` job uses the ReactOS CMake toolchain file at
+`sdk/cmake/toolchain-gcc.cmake` and the `bootcd` build target.  The exact
+incantation may need adjustment if the ReactOS build system changes; treat it
+as a starting point and update when running the job for the first time.
 
 ---
 

@@ -1,0 +1,37 @@
+# Composite action: download the official RosBE-Unix 2.2.1 release tarball.
+#
+# This is intentionally separate from the install-rosbe action so that future
+# workflows can supply their own locally-built package instead of downloading
+# the official release, and still reuse the same install-rosbe action.
+
+name: Download RosBE tarball
+description: >-
+  Downloads the official RosBE-Unix-2.2.1.tar.bz2 from SourceForge to
+  $RUNNER_TEMP.  Outputs the path to the downloaded file.
+
+outputs:
+  tarball_path:
+    description: Absolute path to the downloaded tarball.
+    value: ${{ steps.download.outputs.tarball_path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download RosBE-Unix-2.2.1.tar.bz2
+      id: download
+      shell: bash
+      env:
+        ROSBE_TARBALL: RosBE-Unix-2.2.1.tar.bz2
+        ROSBE_TARBALL_URL: >-
+          https://sourceforge.net/projects/reactos/files/RosBE-Unix/2.2.1/RosBE-Unix-2.2.1.tar.bz2/download
+      run: |
+        curl \
+          --retry 3 \
+          --retry-delay 10 \
+          --max-time 300 \
+          --fail \
+          --location \
+          --output "$RUNNER_TEMP/$ROSBE_TARBALL" \
+          "$ROSBE_TARBALL_URL"
+        echo "Downloaded $(du -h "$RUNNER_TEMP/$ROSBE_TARBALL" | cut -f1)"
+        echo "tarball_path=$RUNNER_TEMP/$ROSBE_TARBALL" >> "$GITHUB_OUTPUT"

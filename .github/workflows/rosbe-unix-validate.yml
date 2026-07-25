@@ -1,0 +1,60 @@
+# Validate the published RosBE-Unix 2.2.1 release end-to-end.
+#
+# This workflow:
+#   - Downloads the official RosBE-Unix-2.2.1.tar.bz2 from SourceForge.
+#   - Runs RosBE-Builder.sh to compile and install the full toolchain.
+#   - Verifies the installed cross-compiler with a cross-compile smoke test.
+#
+# For a full ReactOS build, use the separate "RosBE-Unix — Build ReactOS"
+# workflow (manual trigger only).
+#
+# Resource notes:
+#   - Compiling the toolchain (GCC 8.4.0 cross-compiler, binutils, CMake, etc.)
+#     takes approximately 60–90 minutes on a standard ubuntu-latest runner
+#     (4 vCPUs, 16 GB RAM, Ubuntu 24.04).
+#   - The download step lives in .github/actions/download-rosbe/action.yml.
+#   - The install and smoke-test steps live in .github/actions/install-rosbe/action.yml.
+
+name: RosBE-Unix — Validate installed release
+
+on:
+  push:
+    branches:
+      - ci-work
+    paths:
+      - 'RosBE-Unix/**'
+      - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/download-rosbe/**'
+      - '.github/actions/install-rosbe/**'
+  pull_request:
+    paths:
+      - 'RosBE-Unix/**'
+      - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/download-rosbe/**'
+      - '.github/actions/install-rosbe/**'
+
+permissions:
+  contents: read
+
+jobs:
+  install-rosbe:
+    name: Install RosBE 2.2.1 and cross-compile smoke test
+    runs-on: ubuntu-latest
+    # Toolchain compilation typically finishes within 90 minutes; 120 gives
+    # headroom for slow runners without masking genuine hangs.
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        # Required so that the local composite actions are available on disk.
+        uses: actions/checkout@v4
+
+      - name: Download RosBE package
+        id: download
+        uses: ./.github/actions/download-rosbe
+
+      - name: Install RosBE and run smoke test
+        uses: ./.github/actions/install-rosbe
+        with:
+          tarball_path: ${{ steps.download.outputs.tarball_path }}
+          install_dir: ${{ github.workspace }}/rosbe-install
