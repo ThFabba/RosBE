@@ -38,8 +38,8 @@ jobs:
        contains(github.event.pull_request.labels.*.name, 'ci: build-reactos-from-prebuilt-sources'))
     timeout-minutes: 360
     env:
+      ROSBE_VERSION: 2.2.1
       ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
-      ROSBE_SOURCE_BASE_URL: https://svn.reactos.org/RosBE-Sources/rosbe_2.2.1
 
     steps:
       - name: Checkout repository
@@ -51,6 +51,7 @@ jobs:
           set -euo pipefail
 
           rs_sources_dir="$GITHUB_WORKSPACE/RosBE-Unix/Base-i386/sources"
+          rs_source_base_url="https://svn.reactos.org/RosBE-Sources/rosbe_${ROSBE_VERSION}"
           mkdir -p "$rs_sources_dir"
 
           rs_archives=(
@@ -75,7 +76,11 @@ jobs:
               --fail \
               --location \
               --output "$rs_sources_dir/$rs_archive" \
-              "$ROSBE_SOURCE_BASE_URL/$rs_archive"
+              "$rs_source_base_url/$rs_archive"
+            || {
+              echo "Failed to download $rs_archive from $rs_source_base_url"
+              exit 1
+            }
           done
 
           ls -lh "$rs_sources_dir"
@@ -85,13 +90,13 @@ jobs:
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE/RosBE-Unix"
-          ./makepackage.sh Base-i386 2.2.1
-          ls -lh "$GITHUB_WORKSPACE/RosBE-Unix/RosBE-Unix-2.2.1.tar.bz2"
+          ./makepackage.sh Base-i386 "$ROSBE_VERSION"
+          ls -lh "$GITHUB_WORKSPACE/RosBE-Unix/RosBE-Unix-$ROSBE_VERSION.tar.bz2"
 
       - name: Install repackaged RosBE and run smoke test
         uses: ./.github/actions/install-rosbe
         with:
-          tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-2.2.1.tar.bz2
+          tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
           install_dir: ${{ env.ROSBE_INSTALL_DIR }}
 
       - name: Checkout ReactOS source (shallow)
