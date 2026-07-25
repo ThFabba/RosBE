@@ -1,4 +1,4 @@
-# Validate the published RosBE-Unix 2.2.1 release end-to-end (Next Action 1).
+# Validate the published RosBE-Unix 2.2.1 release end-to-end.
 #
 # This workflow:
 #   - Downloads the official RosBE-Unix-2.2.1.tar.bz2 from SourceForge.
@@ -21,12 +21,12 @@
 #     step that patches the cmake source inside the extracted tarball before
 #     calling RosBE-Builder.sh.
 
-name: RosBE-Unix — Validate installed release (Next Action 1)
+name: RosBE-Unix — Validate installed release
 
 on:
   push:
     branches:
-      - '**'
+      - ci-work
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
@@ -47,7 +47,8 @@ on:
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   # Job 1: Install the published release and verify the cross-compiler works.
-  # Runs on every push and pull request that touches RosBE-Unix or this file.
+  # Runs on pull requests touching RosBE-Unix or this file, plus pushes to
+  # ci-work after merge.
   # ─────────────────────────────────────────────────────────────────────────────
   install-rosbe:
     name: Install RosBE 2.2.1 and cross-compile smoke test
@@ -59,7 +60,7 @@ jobs:
       ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
       ROSBE_TARBALL: RosBE-Unix-2.2.1.tar.bz2
       ROSBE_TARBALL_URL: >-
-        https://downloads.sourceforge.net/project/reactos/RosBE/2.2.1/RosBE-Unix-2.2.1.tar.bz2
+        https://sourceforge.net/projects/reactos/files/RosBE-Unix/2.2.1/RosBE-Unix-2.2.1.tar.bz2/download
 
     steps:
       - name: Show runner environment
@@ -143,7 +144,7 @@ jobs:
       ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
       ROSBE_TARBALL: RosBE-Unix-2.2.1.tar.bz2
       ROSBE_TARBALL_URL: >-
-        https://downloads.sourceforge.net/project/reactos/RosBE/2.2.1/RosBE-Unix-2.2.1.tar.bz2
+        https://sourceforge.net/projects/reactos/files/RosBE-Unix/2.2.1/RosBE-Unix-2.2.1.tar.bz2/download
 
     steps:
       - name: Show runner environment
