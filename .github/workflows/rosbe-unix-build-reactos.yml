@@ -11,16 +11,28 @@
 #   Actions → RosBE-Unix — Build ReactOS → Run workflow
 #
 # Resource notes:
-#   - The shared install and smoke-test steps live in the composite action at
-#     .github/actions/install-rosbe/action.yml.
-#   - The ReactOS CMake toolchain file and bootcd target may need adjustment if
-#     the ReactOS build system changes; treat the current invocation as a
-#     starting point.
+#   - The download step lives in .github/actions/download-rosbe/action.yml.
+#   - The install step lives in .github/actions/install-rosbe/action.yml.
+#     It sets up the RosBE environment (PATH, ROS_ARCH, etc.) for subsequent
+#     steps, equivalent to what sourcing the installed RosBE.sh does.
+#   - ReactOS is configured via its own configure.sh, which requires ROS_ARCH
+#     to be set (done by the install-rosbe action) and places build output in
+#     output-MinGW-i386/ inside the ReactOS source tree.
+#   - The exact ReactOS ref (branch, tag, or commit SHA) is configurable;
+#     leave it blank to use the default branch.
 
 name: RosBE-Unix — Build ReactOS
 
 on:
   workflow_dispatch:
+    inputs:
+      reactos_ref:
+        description: >-
+          ReactOS git ref to check out (branch, tag, or commit SHA).
+          Leave blank to use the default branch.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -40,13 +52,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        # Required so that the local composite action (.github/actions/install-rosbe)
-        # is available on disk before it is referenced below.
+        # Required so that the local composite actions are available on disk.
         uses: actions/checkout@v4
+
+      - name: Download RosBE package
+        id: download
+        uses: ./.github/actions/download-rosbe
 
       - name: Install RosBE and run smoke test
         uses: ./.github/actions/install-rosbe
         with:
+          tarball_path: ${{ steps.download.outputs.tarball_path }}
           install_dir: ${{ env.ROSBE_INSTALL_DIR }}
 
       - name: Record disk usage before ReactOS checkout
@@ -56,6 +72,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: reactos/reactos
+          # Empty ref uses the repository default branch.
+          ref: ${{ inputs.reactos_ref }}
           fetch-depth: 1
           path: reactos
 
@@ -63,18 +81,17 @@ jobs:
         run: df -h .
 
       - name: Configure ReactOS build
+        # Use ReactOS's own configure.sh, which reads ROS_ARCH from the
+        # environment (set by install-rosbe) and places build output in
+        # reactos/output-MinGW-i386/.  Pass -DCMAKE_BUILD_TYPE=Debug for
+        # a debug build (the install-rosbe action has already put the RosBE
+        # cmake and ninja binaries on PATH).
         run: |
-          export PATH="$ROSBE_INSTALL_DIR/bin:$ROSBE_INSTALL_DIR/i386/bin:$PATH"
-          cmake -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/reactos/sdk/cmake/toolchain-gcc.cmake" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -B "$GITHUB_WORKSPACE/reactos-build" \
-            -S "$GITHUB_WORKSPACE/reactos"
+          cd "$GITHUB_WORKSPACE/reactos"
+          ./configure.sh -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build ReactOS (bootcd target)
-        run: |
-          export PATH="$ROSBE_INSTALL_DIR/bin:$ROSBE_INSTALL_DIR/i386/bin:$PATH"
-          ninja -C "$GITHUB_WORKSPACE/reactos-build" bootcd
+        run: ninja -C "$GITHUB_WORKSPACE/reactos/output-MinGW-i386" bootcd
 
       - name: Record disk usage after build
         if: always()

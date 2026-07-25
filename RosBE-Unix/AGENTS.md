@@ -476,6 +476,60 @@ have context.  Add new entries at the top.
 
 ---
 
+**2026-07 — configure.sh, RosBE environment setup, reactos_ref, and composite action split
+(download-rosbe-installer-and-setup branch)**
+
+Several improvements to the `build-reactos` workflow based on review:
+
+**RosBE environment setup — use RosBE.sh equivalence, not manual PATH editing:**
+The installed `RosBE.sh` is an interactive script that ends with
+`bash --rcfile "$_ROSBE_ROSSCRIPTDIR/RosBE-rc"`, which opens a new interactive
+bash session.  Sourcing it in a CI `run:` step sets the env vars in the current
+shell, but spawns a child bash that blocks (or exits immediately on EOF), which
+is fragile.  Instead, the `install-rosbe` composite action now explicitly
+exports the same variables that `RosBE.sh` would set, using `$GITHUB_PATH` and
+`$GITHUB_ENV` so they persist to subsequent steps in the job:
+- `$install_dir/i386/bin` and `$install_dir/bin` prepended to `PATH`
+- `ROS_ARCH=i386`
+- `BISON_PKGDATADIR=$install_dir/share/bison` (so Bison finds its data files
+  even if the install tree has been relocated)
+- `HOST`, `CFLAGS`, `CXXFLAGS`, `LDFLAGS` cleared (to avoid cross-contamination
+  from the host environment)
+
+**ReactOS configuration — use configure.sh, not raw cmake:**
+The `build-reactos` workflow now uses ReactOS's own `configure.sh` script
+(from the root of the checked-out ReactOS source):
+```
+cd "$GITHUB_WORKSPACE/reactos"
+./configure.sh -DCMAKE_BUILD_TYPE=Debug
+```
+`configure.sh` reads `ROS_ARCH` from the environment (set by `install-rosbe`),
+creates the build directory at `output-MinGW-i386/` inside the source tree, and
+runs cmake with `-DCMAKE_TOOLCHAIN_FILE=toolchain-gcc.cmake` automatically.
+The build step is then: `ninja -C "$GITHUB_WORKSPACE/reactos/output-MinGW-i386" bootcd`.
+Debug build is used (`-DCMAKE_BUILD_TYPE=Debug`) rather than Release.
+
+**Configurable ReactOS git ref:**
+The `build-reactos` workflow accepts a `reactos_ref` `workflow_dispatch` input
+(branch, tag, or commit SHA).  An empty value (the default) checks out the
+repository default branch.  This allows testing against a specific ReactOS
+commit or release tag without changing the workflow file.
+
+**Composite action split — download vs. install:**
+The former single `install-rosbe` composite action has been split into two:
+- `.github/actions/download-rosbe/action.yml` — downloads the official
+  `RosBE-Unix-2.2.1.tar.bz2` from SourceForge and outputs the local tarball
+  path.  No inputs required.
+- `.github/actions/install-rosbe/action.yml` — takes `tarball_path` and
+  `install_dir` as inputs; extracts the tarball (finding `RosBE-Builder.sh`
+  dynamically so it works regardless of version subdirectory name), installs
+  the toolchain, runs verify and smoke-test, and sets up the environment.
+
+This split is intentional preparation for the next CI step (Next Action 2):
+when we build our own package with `makepackage.sh`, we can provide that
+tarball directly to `install-rosbe` instead of downloading the official
+release, without duplicating any install logic.
+
 **2026-07 — Refactor to composite action + two independent workflows
 (download-rosbe-installer-and-setup branch)**
 

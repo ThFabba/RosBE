@@ -1,9 +1,15 @@
-# Composite action: download, compile, install, and smoke-test the RosBE-Unix
-# 2.2.1 toolchain.
+# Composite action: extract, compile, install, and smoke-test a RosBE-Unix
+# package tarball, then set up the environment for subsequent workflow steps.
 #
-# Designed for ubuntu-latest runners.  The caller must run
-# actions/checkout before using this action so that the action definition is
-# available on disk.
+# The caller supplies the tarball to install via the tarball_path input.
+# This is intentionally separate from download-rosbe so that future workflows
+# can supply a locally-built package rather than the official release.
+#
+# After this action runs, the job environment is ready to build ReactOS:
+#   - $RUNNER_TOOL_CACHE paths include the RosBE bin directories
+#   - ROS_ARCH, BISON_PKGDATADIR, HOST, CFLAGS, CXXFLAGS, LDFLAGS are set
+# This mirrors what sourcing the installed RosBE.sh would do, without requiring
+# an interactive shell.
 #
 # cmake.patch (RosBE-Unix/cmake.patch) is NOT applied here because it is only
 # needed on GCC 16+.  ubuntu-latest (Ubuntu 24.04) ships GCC 13, which does
@@ -13,11 +19,17 @@
 
 name: Install RosBE toolchain
 description: >-
-  Downloads RosBE-Unix-2.2.1.tar.bz2 from SourceForge, compiles and installs
-  the full toolchain via RosBE-Builder.sh, and verifies it with a
-  cross-compile smoke test.  Designed for ubuntu-latest runners.
+  Extracts a RosBE-Unix package tarball, compiles and installs the toolchain
+  via RosBE-Builder.sh, verifies it with a cross-compile smoke test, and
+  exports the RosBE environment for subsequent workflow steps.
 
 inputs:
+  tarball_path:
+    description: >-
+      Absolute path to the RosBE-Unix package tarball (.tar.bz2) to install.
+      Typically the output of the download-rosbe action, but any compatible
+      tarball produced by makepackage.sh works.
+    required: true
   install_dir:
     description: Absolute path where the toolchain should be installed.
     required: true
@@ -48,37 +60,28 @@ runs:
           texinfo \
           zlib1g-dev
 
-    - name: Download RosBE-Unix-2.2.1.tar.bz2
-      shell: bash
-      env:
-        ROSBE_TARBALL: RosBE-Unix-2.2.1.tar.bz2
-        ROSBE_TARBALL_URL: >-
-          https://sourceforge.net/projects/reactos/files/RosBE-Unix/2.2.1/RosBE-Unix-2.2.1.tar.bz2/download
-      run: |
-        curl \
-          --retry 3 \
-          --retry-delay 10 \
-          --max-time 300 \
-          --fail \
-          --location \
-          --output "$RUNNER_TEMP/$ROSBE_TARBALL" \
-          "$ROSBE_TARBALL_URL"
-        echo "Downloaded $(du -h "$RUNNER_TEMP/$ROSBE_TARBALL" | cut -f1)"
-
     - name: Extract package
       shell: bash
-      run: tar -C "$RUNNER_TEMP" -xjf "$RUNNER_TEMP/RosBE-Unix-2.2.1.tar.bz2"
+      run: tar -C "$RUNNER_TEMP" -xjf "${{ inputs.tarball_path }}"
 
     - name: Install RosBE toolchain (non-interactive)
-      # Pass the install directory as $1 so RosBE-Builder.sh skips the
-      # interactive install-dir and "press Return" prompts.  Pipe "yes" to
-      # answer the non-root confirmation that the published 2.2.1 script
-      # still asks even when $1 is provided.
+      # Find RosBE-Builder.sh inside the extracted tarball — this works
+      # regardless of the exact version subdirectory name in the archive.
+      # Pass the install directory as $1 so the script skips the interactive
+      # install-dir and "press Return" prompts.  Pipe "yes" to answer the
+      # non-root confirmation that the published 2.2.1 script still asks even
+      # when $1 is provided.
       shell: bash
       env:
         ROSBE_INSTALL_DIR: ${{ inputs.install_dir }}
       run: |
-        echo "yes" | "$RUNNER_TEMP/RosBE-Unix-2.2.1/RosBE-Builder.sh" "$ROSBE_INSTALL_DIR"
+        ROSBE_BUILDER=$(find "$RUNNER_TEMP" -maxdepth 2 -name "RosBE-Builder.sh" | head -1)
+        if [[ -z "$ROSBE_BUILDER" ]]; then
+          echo "ERROR: RosBE-Builder.sh not found in extracted tarball"
+          exit 1
+        fi
+        echo "Using installer: $ROSBE_BUILDER"
+        echo "yes" | "$ROSBE_BUILDER" "$ROSBE_INSTALL_DIR"
 
     - name: Verify installation
       shell: bash
@@ -101,3 +104,27 @@ runs:
           "$RUNNER_TEMP/hello.c"
         echo "Cross-compilation smoke test passed."
         file "$RUNNER_TEMP/hello.exe"
+
+    - name: Set up RosBE environment for subsequent steps
+      # Export PATH and environment variables that the installed RosBE.sh
+      # would set up in an interactive session.  Using $GITHUB_PATH and
+      # $GITHUB_ENV makes them available to all subsequent steps in this job.
+      #
+      # Equivalent to what sourcing RosBE.sh does:
+      #   - Prepends <install>/i386/bin and <install>/bin to PATH
+      #   - Sets ROS_ARCH=i386 (via change_architecture)
+      #   - Sets BISON_PKGDATADIR so Bison finds its data files even if the
+      #     install tree has been relocated
+      #   - Clears HOST, CFLAGS, CXXFLAGS, LDFLAGS to avoid cross-contamination
+      shell: bash
+      env:
+        ROSBE_INSTALL_DIR: ${{ inputs.install_dir }}
+      run: |
+        echo "$ROSBE_INSTALL_DIR/i386/bin" >> "$GITHUB_PATH"
+        echo "$ROSBE_INSTALL_DIR/bin" >> "$GITHUB_PATH"
+        echo "ROS_ARCH=i386" >> "$GITHUB_ENV"
+        echo "BISON_PKGDATADIR=$ROSBE_INSTALL_DIR/share/bison" >> "$GITHUB_ENV"
+        echo "HOST=" >> "$GITHUB_ENV"
+        echo "CFLAGS=" >> "$GITHUB_ENV"
+        echo "CXXFLAGS=" >> "$GITHUB_ENV"
+        echo "LDFLAGS=" >> "$GITHUB_ENV"
