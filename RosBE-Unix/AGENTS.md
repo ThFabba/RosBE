@@ -131,27 +131,9 @@ the comparison should use the unpatched CMake source.  However, the patch
 produces the CMake source archive and before running `RosBE-Builder.sh`, or
 handle it conditionally in a future iteration.
 
-The patch content:
-
-```diff
---- CMake-07c58033d74bad5466775fb2dad7d84494a846bd/Source/cmake.cxx
-+++ cmake/Source/cmake.cxx
-@@ -109,8 +109,10 @@
- #  include "cmExtraEclipseCDT4Generator.h"
- #endif
-
--#if defined(__linux__) || defined(_WIN32)
--#  include "cmGlobalGhsMultiGenerator.h"
-+#if !defined(CMAKE_BOOTSTRAP)
-+#  if defined(__linux__) || defined(_WIN32)
-+#    include "cmGlobalGhsMultiGenerator.h"
-+#  endif
- #endif
-
- #if defined(__APPLE__)
-```
-
-Commit this as `RosBE-Unix/cmake.patch`.  The fetch script references it as
+The patch content is in `RosBE-Unix/cmake.patch`.  In brief, it wraps a
+`#include "cmGlobalGhsMultiGenerator.h"` in an `#ifndef CMAKE_BOOTSTRAP`
+guard inside `Source/cmake.cxx`.  The fetch script references it as
 `$rs_scriptdir/cmake.patch`, consistent with how `RosBE-Builder.sh` locates
 files relative to its own directory.
 
