@@ -129,7 +129,7 @@ jobs:
       - name: Upload installed toolchain as artifact
         # Keep for one day — just long enough for a subsequent manual
         # build-reactos run triggered in the same workflow dispatch.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rosbe-toolchain
           path: ${{ env.ROSBE_INSTALL_DIR }}
@@ -160,7 +160,7 @@ jobs:
 
     steps:
       - name: Download installed RosBE toolchain
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rosbe-toolchain
           path: ${{ env.ROSBE_INSTALL_DIR }}
