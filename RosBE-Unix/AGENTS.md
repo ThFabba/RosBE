@@ -75,6 +75,7 @@ choose the validation depth appropriate for a given PR.
 - [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
 - [ ] `compare-packages.sh` — needs to be created (see design notes below)
 - [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (Next Action 1)
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-repackage-build-reactos.yml` (Next Action 2)
 
 
 ## Next Actions
@@ -473,6 +474,34 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — Next Action 2 CI workflow: repackage from pre-built archives + ReactOS build
+(ci-work branch)**
+
+Implemented the CI job for Next Action 2 in a new workflow:
+`.github/workflows/rosbe-unix-repackage-build-reactos.yml`.
+
+The workflow validates the existing `makepackage.sh` path using the published
+pre-built source archives from
+`https://svn.reactos.org/RosBE-Sources/rosbe_2.2.1/`:
+
+1. Download the required `Base-i386/sources/*.tar.bz2` inputs (`binutils`,
+   `bison`, `cmake`, `flex`, `gcc`, `gmp`, `mingw_w64`, `mpc`, `mpfr`,
+   `ninja`).
+2. Run `RosBE-Unix/makepackage.sh Base-i386 2.2.1` to produce a package.
+3. Install the generated tarball using the shared
+   `.github/actions/install-rosbe` composite action.
+4. Build ReactOS (`bootcd`) using the installed toolchain.
+
+Trigger strategy matches the existing expensive ReactOS workflow pattern:
+- `workflow_dispatch` for manual runs.
+- `pull_request` label trigger using
+  `ci: build-reactos-from-prebuilt-sources`.
+
+This keeps the expensive end-to-end validation available in PRs without
+running it on every push.
 
 ---
 
