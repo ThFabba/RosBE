@@ -1,0 +1,15 @@
+--- CMake-07c58033d74bad5466775fb2dad7d84494a846bd/Source/cmake.cxx	2026-07-20 22:29:23.200207513 -0400
++++ cmake/Source/cmake.cxx	2026-07-19 18:20:14.000000000 -0400
+@@ -109,8 +109,10 @@
+ #  include "cmExtraEclipseCDT4Generator.h"
+ #endif
+ 
+-#if defined(__linux__) || defined(_WIN32)
+-#  include "cmGlobalGhsMultiGenerator.h"
++#if !defined(CMAKE_BOOTSTRAP)
++#  if defined(__linux__) || defined(_WIN32)
++#    include "cmGlobalGhsMultiGenerator.h"
++#  endif
+ #endif
+ 
+ #if defined(__APPLE__)
