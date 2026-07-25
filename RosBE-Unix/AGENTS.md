@@ -32,6 +32,13 @@ hard to:
 
 Automate the entire packaging pipeline in the following phases:
 
+**Long-term platform goal:** Fix RosBE-Unix support on macOS running Apple Silicon
+(M-series).  GitHub provides `macos-14` and `macos-15` hosted runners, both of
+which are native arm64 (`macos-latest` resolves to `macos-15` as of mid-2026).
+Adding CI coverage for macOS on Apple Silicon is a future goal; do not attempt
+it until the Linux pipeline is stable and the required porting work is done.
+
+
 1. **Fetch & prepare sources** — Download upstream tarballs, verify hashes,
    apply patches, run any required build-time preparation (e.g. flex's
    `autogen.sh` + `make dist`), and repack everything in the layout expected
@@ -463,6 +470,51 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — CI style, paths-with-spaces finding, and macOS future goal
+(download-rosbe-installer-and-setup branch)**
+
+Three topics discussed with the project owner after the Next Action 1 workflow
+was working:
+
+**CI YAML style — inline steps vs. extracted shell scripts:**
+The community consensus for GitHub Actions is more nuanced than for Bamboo or
+Jenkins.  Inline `run:` steps are appropriate when the logic is pure orchestration
+(download, extract, call an external script, check a file) and the real business
+logic lives in a proper shell script already checked into the repo — as is the
+case here (`RosBE-Builder.sh` does the heavy lifting; the workflow steps are
+glue).  Extract to a standalone shell script when: (a) the `run:` block is long
+and has real branching, (b) the same logic is needed in more than one workflow
+file, or (c) the logic needs to be unit-tested independently.  Use a *composite
+action* (`.github/actions/my-action/action.yml`) when you need to share a
+sequence of named steps across multiple workflow files and want those steps
+visible individually in the Actions UI.  **The current workflow is fine as-is.**
+
+**Paths with spaces — existing scripts are not safe:**
+Investigated whether the CI setup should test install paths containing spaces.
+Conclusion: the existing RosBE-Unix scripts are not safe with paths containing
+spaces and CI should not test that scenario yet.
+
+- `scripts/setuplibrary.sh` explicitly aborts if the script directory contains
+  a space: it checks for a space in `$rs_scriptdir` early on and exits with an
+  error message.
+- `RosBE-Builder.sh` still has some unquoted variable expansions (e.g. the
+  `ln -s ... $rs_archprefixdir/...` lines), so install paths with spaces are
+  not reliably safe.
+
+Treat path-with-spaces support as a **future hardening task**: fix the scripts
+first, then add a CI matrix entry that exercises a spaced install path.  The
+style convention in this file (always double-quote variable expansions) is
+already documenting the right practice for new scripts.
+
+**macOS Apple Silicon — long-term future goal:**
+A long-term goal is to fix RosBE-Unix support on macOS running Apple Silicon
+and add CI validation for that platform.  GitHub provides `macos-14` and
+`macos-15` hosted runners that are native arm64 (`macos-latest` resolves to
+`macos-15` as of mid-2026).  Do not pursue this until the Linux pipeline is
+stable and the required porting work has been identified.
 
 ---
 
