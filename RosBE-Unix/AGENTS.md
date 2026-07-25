@@ -65,8 +65,7 @@ choose the validation depth appropriate for a given PR.
 - [x] `RosBE-Builder.sh` exists and works
 - [x] Agent guidance documentation (this file)
 - [ ] `fetch-sources.sh` — needs to be created (see design notes below)
-- [ ] `cmake.patch` — must be located and committed before `fetch-sources.sh`
-      can be fully tested (see "Missing Pieces" below)
+- [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
 - [ ] `compare-packages.sh` — needs to be created (see design notes below)
 - [ ] GitHub Actions CI workflow — needs to be created
 
@@ -98,7 +97,9 @@ coupling explicit.
 
 **Prototype:**
 A working prototype was provided in the problem statement.  Use it as the
-reference for logic, but rewrite it to follow the style conventions below.
+reference for **logic**, but **do not copy its style** — the prototype
+intentionally did not follow RosBE conventions.  Rewrite it using the style
+conventions documented below.
 
 ### `compare-packages.sh`
 
@@ -114,22 +115,45 @@ reference for logic, but rewrite it to follow the style conventions below.
    tolerated discrepancies do not cause false failures.
 5. Produce a clear pass/fail result with details on any unexpected differences.
 
-### Missing Pieces
+### `cmake.patch`
 
-**`cmake.patch`:** The prototype references `$SCRIPT_DIR/cmake.patch` but
-this file is not yet in the repository.  The CMake source used is the ReactOS
-fork (`reactos/CMake`, branch `cmake-3.17.2-reactos`, commit `07c58033`).
-The patch captures changes made on top of upstream CMake 3.17.2 that are not
-captured in that fork's commit history (i.e. local working-tree changes that
-were manually applied before packaging).
+**Location:** `RosBE-Unix/cmake.patch`
 
-To resolve this, an agent should:
-1. Inspect the ReactOS CMake fork at the relevant commit.
-2. Diff it against a clean upstream CMake 3.17.2 tree to identify any
-   additional working-tree changes that belong in a patch.
-3. Commit the resulting patch to `RosBE-Unix/cmake.patch` (keeping it next
-   to the script that uses it, consistent with the prototype's `$SCRIPT_DIR`
-   reference).
+This patch fixes a compilation error that occurs when building CMake on modern
+Linux with GCC 16.  It wraps a `#include "cmGlobalGhsMultiGenerator.h"` in an
+`#ifndef CMAKE_BOOTSTRAP` guard inside `Source/cmake.cxx`.
+
+**Important:** this patch was **not** applied when the official RosBE 2.2.1
+release was packaged, so `compare-packages.sh` must **not** factor it in —
+the comparison should use the unpatched CMake source.  However, the patch
+**will** be needed during phase 4 (installing the package / running
+`RosBE-Builder.sh`) on modern distros.  Apply it after `fetch-sources.sh`
+produces the CMake source archive and before running `RosBE-Builder.sh`, or
+handle it conditionally in a future iteration.
+
+The patch content:
+
+```diff
+--- CMake-07c58033d74bad5466775fb2dad7d84494a846bd/Source/cmake.cxx
++++ cmake/Source/cmake.cxx
+@@ -109,8 +109,10 @@
+ #  include "cmExtraEclipseCDT4Generator.h"
+ #endif
+
+-#if defined(__linux__) || defined(_WIN32)
+-#  include "cmGlobalGhsMultiGenerator.h"
++#if !defined(CMAKE_BOOTSTRAP)
++#  if defined(__linux__) || defined(_WIN32)
++#    include "cmGlobalGhsMultiGenerator.h"
++#  endif
+ #endif
+
+ #if defined(__APPLE__)
+```
+
+Commit this as `RosBE-Unix/cmake.patch`.  The fetch script references it as
+`$rs_scriptdir/cmake.patch`, consistent with how `RosBE-Builder.sh` locates
+files relative to its own directory.
 
 
 ## Source Versions and Hashes
@@ -156,7 +180,10 @@ for RosBE 2.2.1 are:
 
 - `bison-3.5-reactos-fix-win32-build.patch`
 - `GMP-6.2.0-C89-fixes.patch`
-- `cmake.patch` (to be committed — see "Missing Pieces" above)
+
+`cmake.patch` (at `RosBE-Unix/cmake.patch`) is also used by `fetch-sources.sh`
+but was **not** part of the 2.2.1 release package — see the `cmake.patch`
+section under Script Design.
 
 SHA-256 hashes for the downloaded archives (from the prototype):
 
@@ -192,14 +219,36 @@ these allowances should be tightened.
 |           | `emulparams`; files matching `elf32*`                                    |
 | All tools | The outer `.tar.bz2` compression may differ; compare extracted contents  |
 
+**Note on cmake.patch:** `cmake.patch` was NOT applied when building the
+2.2.1 release, so the comparison must use the unpatched CMake tree (i.e. do
+not apply `cmake.patch` before running `compare-packages.sh`).
+
+**Note on flex:** The exact file set produced by flex's `autogen.sh` +
+`make dist` depends on the host versions of `autoconf`, `automake`,
+`libtool`, `bison`, `help2man`, and `texinfo`.  The 2.2.1 release was
+prepared with these specific versions:
+
+- autoconf 2.69
+- automake 1.15.1
+- bison 3.0.4
+- help2man 1.47.6
+- libtool 2.4.6
+- texinfo 6.5
+
+Using different versions will produce a larger diff in the flex source.  CI
+and testing environments should either install the exact versions above to
+minimise the diff, or accept the larger diff by adding more flex exclusions.
+
 All other tools (Bison, GCC, mingw-w64, GMP, MPC, MPFR, Ninja) should match
-the reference exactly once `cmake.patch` is sorted out.
+the reference exactly.
 
 
 ## Shell Script Style Conventions
 
 Study the existing scripts — `RosBE-Builder.sh`, `makepackage.sh`,
-`scripts/setuplibrary.sh` — for style.  New scripts must follow these rules:
+`scripts/setuplibrary.sh` — for style.  The prototype script provided in the
+problem statement intentionally did **not** follow RosBE conventions; new
+scripts must.
 
 ### General
 
@@ -208,50 +257,65 @@ Study the existing scripts — `RosBE-Builder.sh`, `makepackage.sh`,
   "Released under GNU GPL v2 or any later version."
 - **Indentation:** Tabs (not spaces).
 - **Line length:** No hard limit, but keep lines readable.
-- **Sections:** Use `###...###` comment blocks (matching the width in
-  existing scripts) to delimit major sections.
+- **Section comments:** Use the `#` / `# Section name` / `#` three-line
+  style seen in `makepackage.sh` and `RosBE-Builder.sh`, for example:
+  ```bash
+  #
+  # Download sources
+  #
+  ```
+  Do **not** use `###...###` banner-style blocks — those are not a RosBE
+  convention.
+- **Script naming:** Lowercase with hyphens where needed, matching
+  `makepackage.sh` and `makepackage-deb.sh`.  The new scripts are
+  `fetch-sources.sh` and `compare-packages.sh`.
 
 ### Variables
 
-- `UPPER_CASE` for script-level constants and configuration (versions, paths,
-  filenames, hashes).
-- `lower_case` for local variables inside functions.
-- Always double-quote variable expansions: `"$VAR"`, `"${VAR}"`.
+- **Use the `rs_` prefix** and lowercase for all script-level variables,
+  following the convention in `setuplibrary.sh` and `RosBE-Builder.sh`
+  (e.g. `rs_scriptdir`, `rs_workdir`, `rs_bison_version`).
+- Local variables inside functions may omit the prefix and use `local`.
+- Always double-quote variable expansions: `"$rs_var"`, `"${rs_var}"`.
+
+### Error handling
+
+- **Use `set -e`** at the top of new scripts.  This is a modern best practice
+  that makes failures fail-fast.  The existing scripts check `$?` manually,
+  but new scripts should prefer `set -e` for safety (discussed with the
+  project owner; agreed to keep).
+- Use `rs_do_command` from `setuplibrary.sh` to run build commands.  It logs
+  output to `$rs_workdir/build.log`, prints a short status line, and calls
+  `rs_check_run` which exits with a clear message on failure.  This replaces
+  the prototype's per-step `{ echo "step failed. See log"; exit 1; }` pattern.
+- For steps that `rs_do_command` cannot wrap (e.g. `patch`, `unzip`), redirect
+  output to `$rs_workdir/build.log` and let `set -e` handle failure, or use:
+  ```bash
+  some_command >> "$rs_workdir/build.log" 2>&1
+  ```
+
+### Logging
+
+- Use a single log file: `$rs_workdir/build.log`, consistent with
+  `setuplibrary.sh`.  Do **not** use per-step log files as the prototype did.
+- Print a short, human-readable status line to stdout for each major step
+  (e.g. `echo "Preparing bison..."`).
+
+### Script directory
+
+- Determine the script's own directory using the RosBE pattern:
+  ```bash
+  cd `dirname $0`
+  rs_scriptdir="$PWD"
+  ```
+  Do **not** use the `BASH_SOURCE`-based pattern from the prototype —
+  that was not part of the existing RosBE style.
 
 ### Conditionals and tests
 
 - Use `[[ ]]` (bashism) rather than `[ ]` — consistent with existing scripts.
 - Use `if`/`elif`/`else`/`fi` blocks; avoid single-line `&&` chains for
   anything beyond trivial guard clauses.
-
-### Error handling
-
-- **Use `set -e`** at the top of new scripts.  This is a modern best practice
-  that makes failures fail-fast.  The existing scripts check `$?` manually,
-  but new scripts should prefer `set -e` for safety.  *(This was discussed
-  with the project owner and agreed upon.)*
-- For commands where failure needs a custom message or log reference, use:
-  ```bash
-  some_command > "$LOG_DIR/step.log" 2>&1 \
-      || { echo "Step failed. See $LOG_DIR/step.log"; exit 1; }
-  ```
-- Always include the log path in error messages.
-
-### Paths and `cd`
-
-- Determine the script's own directory with:
-  ```bash
-  SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
-  ```
-- Avoid bare `cd` without error handling; under `set -e` a failed `cd` will
-  abort the script, which is the desired behaviour.
-
-### Logging
-
-- Route verbose/build output to a log file.
-- Print a short, human-readable status line to stdout for each major step
-  (e.g. `echo "Preparing bison..."`).
-- On failure, print the log path so the user can investigate.
 
 ### Shellcheck
 
@@ -278,9 +342,16 @@ Agents **must** follow this workflow before declaring any task complete:
    justification.
 
 3. **Integration test — `fetch-sources.sh`:**
-   Run the script on a Linux host that has `autoconf`, `automake`, `libtool`,
-   `gettext`, `flex` (host), `bison` (host), and standard build tools
-   installed.  Verify that:
+   Run the script on a Linux host with standard build tools installed.
+   For the flex source to match the RosBE 2.2.1 reference as closely as
+   possible, install these specific versions of the host tools that flex's
+   `autogen.sh` + `make dist` invokes (see "Known Differences" above):
+   - autoconf 2.69, automake 1.15.1, libtool 2.4.6
+   - bison 3.0.4, help2man 1.47.6, texinfo 6.5
+   Also install Python 3.12.x — Ninja 1.10.0's bootstrap (`configure.py`)
+   requires a Python version that understands the script; Python 3.12.13
+   is known to work.
+   Verify that:
    - All downloads complete and hashes pass.
    - All `Base-i386/sources/*.tar.bz2` files are created.
    - Each archive extracts to a directory with the expected name.
@@ -291,6 +362,8 @@ Agents **must** follow this workflow before declaring any task complete:
    RosBE-Unix/compare-packages.sh /path/to/RosBE-Unix-2.2.1.tar.bz2
    ```
    The script must exit 0 and report no unexpected differences.
+   Remember: do **not** apply `cmake.patch` to the sources before this
+   comparison (see "Known Differences").
 
 5. **CI:** Once the GitHub Actions workflow exists, ensure it passes.
 
@@ -303,6 +376,35 @@ and confirm that at least steps 1 and 2 pass.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — Style and cmake.patch corrections (update-readme branch)**
+
+- Project owner confirmed: the prototype does NOT follow RosBE style; new
+  scripts must.
+- Corrected variable naming: use `rs_` lowercase prefix (e.g. `rs_workdir`,
+  `rs_bison_version`), not the UPPER_CASE used in the prototype.
+- Corrected section comment style: use `#` / `# Name` / `#` three-line
+  blocks, not `### ... ###` banners (those were an invention of the prototype).
+- Corrected error handling: use `rs_do_command` from `setuplibrary.sh` for
+  build steps rather than `{ echo "failed"; exit 1; }` guards.
+- Corrected logging: use a single `$rs_workdir/build.log` file, not
+  per-step files.
+- Corrected script-dir detection: use `cd \`dirname $0\` && rs_scriptdir="$PWD"`,
+  not the `BASH_SOURCE`-based pattern.
+- `set -e` confirmed: project owner agreed it is a worthwhile modern practice;
+  keep it even though existing scripts do not use it.
+- `cmake.patch` clarified: the patch content was provided.  It fixes a GCC 16
+  build error in `Source/cmake.cxx`.  It was NOT applied for the 2.2.1
+  release, so comparison must use the unpatched source.  It IS needed for
+  phase 4 (installation) on modern distros.  Commit it as
+  `RosBE-Unix/cmake.patch`.
+- Flex toolchain versions documented: the 2.2.1 release was prepared with
+  autoconf 2.69, automake 1.15.1, bison 3.0.4, help2man 1.47.6,
+  libtool 2.4.6, texinfo 6.5.  Using other versions produces a larger diff.
+- Python version documented: Python 3.12.13 is known to work with Ninja
+  1.10.0's `configure.py` bootstrap.
 
 ---
 
