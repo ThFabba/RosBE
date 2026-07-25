@@ -1,0 +1,47 @@
+# Shell script static checks for RosBE-Unix.
+#
+# This workflow:
+#   - Runs `bash -n` (syntax check) on every .sh file under RosBE-Unix/.
+#   - Runs `shellcheck` on scripts that follow modern shell style conventions,
+#     currently: fetch-sources.sh.
+#     Add new scripts here as they are introduced; older scripts that rely on
+#     the established RosBE backtick convention are covered only by `bash -n`.
+#
+# Both tools are pre-installed on ubuntu-latest; no install step is needed.
+
+name: RosBE-Unix — Shell script static checks
+
+on:
+  push:
+    branches:
+      - ci-work
+    paths:
+      - 'RosBE-Unix/**'
+      - '.github/workflows/rosbe-unix-shellcheck.yml'
+  pull_request:
+    paths:
+      - 'RosBE-Unix/**'
+      - '.github/workflows/rosbe-unix-shellcheck.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: bash -n and shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Syntax check (bash -n) — all RosBE-Unix shell scripts
+        shell: bash
+        run: |
+          find RosBE-Unix -name '*.sh' -print0 \
+            | xargs -0 -I{} bash -n {}
+
+      - name: shellcheck — fetch-sources.sh
+        shell: bash
+        run: shellcheck RosBE-Unix/fetch-sources.sh
