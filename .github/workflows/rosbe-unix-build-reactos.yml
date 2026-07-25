@@ -1,7 +1,7 @@
-# Build ReactOS using the published RosBE-Unix 2.2.1 toolchain.
+# Build ReactOS using a locally-packaged RosBE-Unix toolchain.
 #
-# This workflow is too slow for routine CI — it installs the toolchain from
-# scratch (~60–90 minutes) and then performs a full ReactOS build
+# This workflow is too slow for routine CI — it builds the toolchain from
+# pre-built sources (~60–90 minutes) and then performs a full ReactOS build
 # (~60–120 minutes), for a total wall time of roughly 2–3 hours.
 #
 # Triggers:
@@ -15,7 +15,6 @@
 #      available in the GitHub UI.
 #
 # Resource notes:
-#   - The download step lives in .github/actions/download-rosbe/action.yml.
 #   - The install step lives in .github/actions/install-rosbe/action.yml.
 #     It sets up the RosBE environment (PATH, ROS_ARCH, etc.) for subsequent
 #     steps, equivalent to what sourcing the installed RosBE.sh does.
@@ -50,7 +49,7 @@ jobs:
   # Actions job limit but too expensive for routine CI.
   # ─────────────────────────────────────────────────────────────────────────────
   build-reactos:
-    name: Install RosBE 2.2.1 and build ReactOS (bootcd)
+    name: Build and install RosBE package, then build ReactOS (bootcd)
     runs-on: ubuntu-latest
     # For pull_request events, only run when the "ci: build-reactos" label is
     # applied.  workflow_dispatch runs always.
@@ -60,6 +59,7 @@ jobs:
        contains(github.event.pull_request.labels.*.name, 'ci: build-reactos'))
     timeout-minutes: 300
     env:
+      ROSBE_VERSION: 2.2.1
       ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
 
     steps:
@@ -67,14 +67,20 @@ jobs:
         # Required so that the local composite actions are available on disk.
         uses: actions/checkout@v4
 
-      - name: Download RosBE package
-        id: download
-        uses: ./.github/actions/download-rosbe
+      - name: Fetch pre-built source archives
+        shell: bash
+        working-directory: ${{ github.workspace }}/RosBE-Unix
+        run: ./fetch-sources.sh
+
+      - name: Build RosBE package
+        shell: bash
+        working-directory: ${{ github.workspace }}/RosBE-Unix
+        run: ./makepackage.sh Base-i386 "$ROSBE_VERSION"
 
       - name: Install RosBE and run smoke test
         uses: ./.github/actions/install-rosbe
         with:
-          tarball_path: ${{ steps.download.outputs.tarball_path }}
+          tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
           install_dir: ${{ env.ROSBE_INSTALL_DIR }}
 
       - name: Record disk usage before ReactOS checkout

@@ -71,11 +71,11 @@ choose the validation depth appropriate for a given PR.
 - [x] `makepackage.sh` exists and works
 - [x] `RosBE-Builder.sh` exists and works
 - [x] Agent guidance documentation (this file)
-- [ ] `fetch-sources.sh` — needs to be created (see design notes below)
+- [ ] `fetch-sources.sh` — initial implementation in place (SVN download of pre-built archives + README.pdf placeholder); upstream-fetch logic and hash verification pending for Next Action 4
 - [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
 - [ ] `compare-packages.sh` — needs to be created (see design notes below)
-- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (Next Action 1)
-- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-repackage-build-reactos.yml` (Next Action 2)
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (now builds from pre-built sources via `fetch-sources.sh`; Next Actions 1 & 2)
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-build-reactos.yml` (full ReactOS build using the same packaged toolchain; manual trigger)
 
 
 ## Next Actions
@@ -474,6 +474,45 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — Workflow rationalization and fetch-sources.sh stub
+(ci-work branch)**
+
+Two design decisions made in response to PR review feedback:
+
+**Workflow rationalization:**
+The initial Next Action 2 implementation added a third workflow file
+(`rosbe-unix-repackage-build-reactos.yml`) alongside the two existing ones.
+The project owner pointed out that it would be cleaner for the repackage path
+to replace the official-download path rather than sit alongside it —
+eventually the official tarball download will only happen in the comparison
+step (Next Action 3, compare-packages.sh).
+
+Adopted the rationalized architecture:
+- `rosbe-unix-validate.yml` (routine CI, push/PR) now runs `fetch-sources.sh`
+  + `makepackage.sh` + `install-rosbe`, replacing the previous path that
+  downloaded the official tarball.
+- `rosbe-unix-build-reactos.yml` (manual/expensive) mirrors the same pipeline
+  but adds the ReactOS build step.
+- `rosbe-unix-repackage-build-reactos.yml` is removed; its content is absorbed
+  into the two refactored workflows.
+- The `.github/actions/download-rosbe` composite action is kept in place for
+  when `compare-packages.sh` (Next Action 3) needs to download the official
+  tarball as the comparison reference.
+
+**`fetch-sources.sh` stub:**
+The inline SVN download steps in the workflow were extracted into
+`RosBE-Unix/fetch-sources.sh`, following RosBE style conventions.  As a result
+both workflows now call the script, so the CI step remains stable as the script
+evolves in Next Action 4.
+
+The script also creates a minimal `Base-i386/README.pdf` placeholder.
+`makepackage.sh` requires this file to exist (it is gitignored and not produced
+by the SVN sources); the placeholder satisfies the check.  `compare-packages.sh`
+must exclude `README.pdf` from comparison against the official release, which
+was produced with a real PDF.
 
 ---
 
