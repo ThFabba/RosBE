@@ -421,9 +421,12 @@ established by the previous.
 
 1. **Install the published release (`Next Action 1`)** — Download
    `RosBE-Unix-2.2.1.tar.bz2`, install it via `RosBE-Builder.sh`, and
-   compile a ReactOS build with the resulting toolchain.  This is the first CI
-   job added and validates the current release in our hosted environment before
-   any code is changed.
+   verify with a cross-compile smoke test.  This is the first CI job added and
+   validates the current release in our hosted environment before any code is
+   changed.  A separate manual-trigger-only workflow (`rosbe-unix-build-reactos.yml`)
+   then installs the toolchain again from scratch and builds the `bootcd` target.
+   The shared install steps live in the composite action at
+   `.github/actions/install-rosbe/action.yml` to avoid duplication.
 
 2. **Repackage from pre-built archives (`Next Action 2`)** — Download the
    pre-built source archives from
@@ -470,6 +473,39 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — Refactor to composite action + two independent workflows
+(download-rosbe-installer-and-setup branch)**
+
+Observed that GitHub Actions does not allow a skipped job to be resumed later
+in the same run.  The artifact-based two-job design (upload toolchain in job 1,
+download in job 2 when `run_reactos_build=true`) therefore provides no
+practical value: triggering a ReactOS build always requires starting a fresh
+workflow run that re-installs the toolchain regardless.
+
+Refactored to two fully independent workflows, with shared steps extracted into
+a local composite action to avoid duplication:
+
+- **`.github/actions/install-rosbe/action.yml`** — composite action containing
+  all install and smoke-test steps (apt dependencies, tarball download,
+  extraction, `RosBE-Builder.sh`, verify, cross-compile check).  The caller
+  passes the install directory as the `install_dir` input.  Both workflows
+  require an `actions/checkout` step first so the local action is available on
+  disk.
+
+- **`rosbe-unix-validate.yml`** — triggers on push/PR; single `install-rosbe`
+  job; no artifact; calls the composite action.  This is the routine fast CI
+  path (~60–90 min).
+
+- **`rosbe-unix-build-reactos.yml`** — `workflow_dispatch` only; single
+  `build-reactos` job; calls the composite action then checks out ReactOS and
+  builds `bootcd`.  This is the slow full-validation path (~2–3 hours total).
+
+The artifact upload/download and the "Restore executable permissions" workaround
+are removed: since both workflows always install fresh, there is no artifact to
+download and no need to repair permissions.
 
 ---
 

@@ -1,0 +1,81 @@
+# Build ReactOS using the published RosBE-Unix 2.2.1 toolchain.
+#
+# This workflow is MANUAL TRIGGER ONLY — it is too slow for routine CI.
+# It installs the toolchain from scratch (~60–90 minutes) and then performs a
+# full ReactOS build (~60–120 minutes), for a total wall time of roughly 2–3
+# hours.  Running this on every push or pull request would be impractical on
+# standard GitHub Actions runners.
+#
+# Trigger with:
+#
+#   Actions → RosBE-Unix — Build ReactOS → Run workflow
+#
+# Resource notes:
+#   - The shared install and smoke-test steps live in the composite action at
+#     .github/actions/install-rosbe/action.yml.
+#   - The ReactOS CMake toolchain file and bootcd target may need adjustment if
+#     the ReactOS build system changes; treat the current invocation as a
+#     starting point.
+
+name: RosBE-Unix — Build ReactOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Install the toolchain, then build ReactOS.
+  # A full ReactOS build (~60–120 min) is feasible within the 6-hour GitHub
+  # Actions job limit but too expensive for routine CI.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-reactos:
+    name: Install RosBE 2.2.1 and build ReactOS (bootcd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
+
+    steps:
+      - name: Checkout repository
+        # Required so that the local composite action (.github/actions/install-rosbe)
+        # is available on disk before it is referenced below.
+        uses: actions/checkout@v4
+
+      - name: Install RosBE and run smoke test
+        uses: ./.github/actions/install-rosbe
+        with:
+          install_dir: ${{ env.ROSBE_INSTALL_DIR }}
+
+      - name: Record disk usage before ReactOS checkout
+        run: df -h .
+
+      - name: Checkout ReactOS source (shallow)
+        uses: actions/checkout@v4
+        with:
+          repository: reactos/reactos
+          fetch-depth: 1
+          path: reactos
+
+      - name: Record disk usage after ReactOS checkout
+        run: df -h .
+
+      - name: Configure ReactOS build
+        run: |
+          export PATH="$ROSBE_INSTALL_DIR/bin:$ROSBE_INSTALL_DIR/i386/bin:$PATH"
+          cmake -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/reactos/sdk/cmake/toolchain-gcc.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -B "$GITHUB_WORKSPACE/reactos-build" \
+            -S "$GITHUB_WORKSPACE/reactos"
+
+      - name: Build ReactOS (bootcd target)
+        run: |
+          export PATH="$ROSBE_INSTALL_DIR/bin:$ROSBE_INSTALL_DIR/i386/bin:$PATH"
+          ninja -C "$GITHUB_WORKSPACE/reactos-build" bootcd
+
+      - name: Record disk usage after build
+        if: always()
+        run: df -h .

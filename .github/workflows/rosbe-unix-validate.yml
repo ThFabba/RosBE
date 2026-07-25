@@ -4,22 +4,16 @@
 #   - Downloads the official RosBE-Unix-2.2.1.tar.bz2 from SourceForge.
 #   - Runs RosBE-Builder.sh to compile and install the full toolchain.
 #   - Verifies the installed cross-compiler with a cross-compile smoke test.
-#   - Optionally (manual trigger only) checks out ReactOS and runs a build.
+#
+# For a full ReactOS build, use the separate "RosBE-Unix — Build ReactOS"
+# workflow (manual trigger only).
 #
 # Resource notes:
 #   - Compiling the toolchain (GCC 8.4.0 cross-compiler, binutils, CMake, etc.)
 #     takes approximately 60–90 minutes on a standard ubuntu-latest runner
 #     (4 vCPUs, 16 GB RAM, Ubuntu 24.04).
-#   - A full ReactOS build adds approximately 60–120 minutes on top of that,
-#     making the end-to-end wall time roughly 2–3 hours.  For this reason the
-#     ReactOS build is gated behind a manual workflow_dispatch input; it does
-#     not run on every push or pull request.
-#   - cmake.patch (see RosBE-Unix/cmake.patch) is NOT applied here because the
-#     patch is only needed on GCC 16+.  ubuntu-latest (Ubuntu 24.04) ships GCC
-#     13, which does not trigger the compilation error the patch fixes.
-#   - If the runner is ever upgraded to a distro with GCC 16 or later, add a
-#     step that patches the cmake source inside the extracted tarball before
-#     calling RosBE-Builder.sh.
+#   - The shared install and smoke-test steps live in the composite action at
+#     .github/actions/install-rosbe/action.yml.
 
 name: RosBE-Unix — Validate installed release
 
@@ -30,177 +24,31 @@ on:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/install-rosbe/**'
   pull_request:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
-  workflow_dispatch:
-    inputs:
-      run_reactos_build:
-        description: >-
-          Also run a ReactOS build after installing RosBE.
-          Adds approximately 60–120 minutes to the total run time.
-        required: false
-        default: 'false'
-        type: boolean
+      - '.github/actions/install-rosbe/**'
 
 permissions:
   contents: read
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Job 1: Install the published release and verify the cross-compiler works.
-  # Runs on pull requests touching RosBE-Unix or this file, plus pushes to
-  # ci-work after merge.
-  # ─────────────────────────────────────────────────────────────────────────────
   install-rosbe:
     name: Install RosBE 2.2.1 and cross-compile smoke test
     runs-on: ubuntu-latest
     # Toolchain compilation typically finishes within 90 minutes; 120 gives
     # headroom for slow runners without masking genuine hangs.
     timeout-minutes: 120
-    env:
-      ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
-      ROSBE_TARBALL: RosBE-Unix-2.2.1.tar.bz2
-      ROSBE_TARBALL_URL: >-
-        https://sourceforge.net/projects/reactos/files/RosBE-Unix/2.2.1/RosBE-Unix-2.2.1.tar.bz2/download
 
     steps:
-      - name: Show runner environment
-        run: |
-          echo "=== Runner environment ==="
-          uname -a
-          echo "CPUs: $(nproc)"
-          echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
-          echo "Disk: $(df -h . | awk 'NR==2{print $4}') free on workspace"
-          gcc --version | head -1
-          python3 --version
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            build-essential \
-            bzip2 \
-            curl \
-            m4 \
-            texinfo \
-            zlib1g-dev
-
-      - name: Download RosBE-Unix-2.2.1.tar.bz2
-        run: |
-          curl \
-            --retry 3 \
-            --retry-delay 10 \
-            --max-time 300 \
-            --fail \
-            --location \
-            --output "$RUNNER_TEMP/$ROSBE_TARBALL" \
-            "$ROSBE_TARBALL_URL"
-          echo "Downloaded $(du -h "$RUNNER_TEMP/$ROSBE_TARBALL" | cut -f1)"
-
-      - name: Extract package
-        run: tar -C "$RUNNER_TEMP" -xjf "$RUNNER_TEMP/$ROSBE_TARBALL"
-
-      - name: Install RosBE toolchain (non-interactive)
-        # Pass the install directory as $1 so RosBE-Builder.sh skips the
-        # interactive install-dir and "press Return" prompts.  Pipe "yes" to
-        # answer the non-root confirmation that the published 2.2.1 script
-        # still asks even when $1 is provided.
-        run: |
-          echo "yes" | "$RUNNER_TEMP/RosBE-Unix-2.2.1/RosBE-Builder.sh" "$ROSBE_INSTALL_DIR"
-
-      - name: Verify installation
-        run: |
-          echo "Installed version: $(cat "$ROSBE_INSTALL_DIR/RosBE-Version")"
-          "$ROSBE_INSTALL_DIR/i386/bin/i686-w64-mingw32-gcc" --version
-
-      - name: Cross-compile smoke test
-        # Compile a trivial C program for the i686-w64-mingw32 target to
-        # confirm the installed toolchain can produce PE/COFF output.
-        run: |
-          printf 'int main(void) { return 0; }\n' > "$RUNNER_TEMP/hello.c"
-          "$ROSBE_INSTALL_DIR/i386/bin/i686-w64-mingw32-gcc" \
-            -o "$RUNNER_TEMP/hello.exe" \
-            "$RUNNER_TEMP/hello.c"
-          echo "Cross-compilation smoke test passed."
-          file "$RUNNER_TEMP/hello.exe"
-
-      - name: Upload installed toolchain as artifact
-        # Keep for one day — just long enough for a subsequent manual
-        # build-reactos run triggered in the same workflow dispatch.
-        uses: actions/upload-artifact@v7
-        with:
-          name: rosbe-toolchain
-          path: ${{ env.ROSBE_INSTALL_DIR }}
-          retention-days: 1
-
-  # ─────────────────────────────────────────────────────────────────────────────
-  # Job 2: Check out ReactOS and build it with the installed toolchain.
-  # MANUAL TRIGGER ONLY — too slow for regular push/PR CI.
-  #
-  # A full ReactOS build takes approximately 60–120 minutes on top of the
-  # ~60–90 minutes needed to install the toolchain, for a total wall time of
-  # roughly 2–3 hours.  Running this on every commit would be impractical on
-  # standard GitHub Actions runners.  Trigger it with:
-  #
-  #   Actions → RosBE-Unix — Validate installed release → Run workflow
-  #   ✓ Also run a ReactOS build
-  # ─────────────────────────────────────────────────────────────────────────────
-  build-reactos:
-    name: Build ReactOS with RosBE 2.2.1 (slow — manual trigger only)
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
-    needs: install-rosbe
-    if: >-
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.run_reactos_build == 'true'
-    env:
-      ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
-
-    steps:
-      - name: Download installed RosBE toolchain
-        uses: actions/download-artifact@v8
-        with:
-          name: rosbe-toolchain
-          path: ${{ env.ROSBE_INSTALL_DIR }}
-
-      - name: Restore executable permissions on toolchain binaries
-        # actions/upload-artifact does not preserve file permissions.
-        # Restore execute bits selectively: binaries in bin/ and libexec/
-        # directories, plus any shell scripts.
-        run: |
-          find "$ROSBE_INSTALL_DIR" -type f \
-            \( -path '*/bin/*' -o -path '*/libexec/*' -o -name '*.sh' \) \
-            -exec chmod u+x {} +
-
-      - name: Record disk usage before ReactOS checkout
-        run: df -h .
-
-      - name: Checkout ReactOS source (shallow)
+      - name: Checkout repository
+        # Required so that the local composite action (.github/actions/install-rosbe)
+        # is available on disk before it is referenced below.
         uses: actions/checkout@v4
+
+      - name: Install RosBE and run smoke test
+        uses: ./.github/actions/install-rosbe
         with:
-          repository: reactos/reactos
-          fetch-depth: 1
-          path: reactos
-
-      - name: Record disk usage after ReactOS checkout
-        run: df -h .
-
-      - name: Configure ReactOS build
-        run: |
-          export PATH="$ROSBE_INSTALL_DIR/bin:$ROSBE_INSTALL_DIR/i386/bin:$PATH"
-          cmake -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/reactos/sdk/cmake/toolchain-gcc.cmake" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -B "$GITHUB_WORKSPACE/reactos-build" \
-            -S "$GITHUB_WORKSPACE/reactos"
-
-      - name: Build ReactOS (bootcd target)
-        run: |
-          export PATH="$ROSBE_INSTALL_DIR/bin:$ROSBE_INSTALL_DIR/i386/bin:$PATH"
-          ninja -C "$GITHUB_WORKSPACE/reactos-build" bootcd
-
-      - name: Record disk usage after build
-        if: always()
-        run: df -h .
+          install_dir: ${{ github.workspace }}/rosbe-install

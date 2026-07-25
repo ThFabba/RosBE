@@ -1,0 +1,103 @@
+# Composite action: download, compile, install, and smoke-test the RosBE-Unix
+# 2.2.1 toolchain.
+#
+# Designed for ubuntu-latest runners.  The caller must run
+# actions/checkout before using this action so that the action definition is
+# available on disk.
+#
+# cmake.patch (RosBE-Unix/cmake.patch) is NOT applied here because it is only
+# needed on GCC 16+.  ubuntu-latest (Ubuntu 24.04) ships GCC 13, which does
+# not trigger the compilation error the patch fixes.  If the runner is ever
+# upgraded to a distro with GCC 16 or later, add a step that patches the cmake
+# source inside the extracted tarball before calling RosBE-Builder.sh.
+
+name: Install RosBE toolchain
+description: >-
+  Downloads RosBE-Unix-2.2.1.tar.bz2 from SourceForge, compiles and installs
+  the full toolchain via RosBE-Builder.sh, and verifies it with a
+  cross-compile smoke test.  Designed for ubuntu-latest runners.
+
+inputs:
+  install_dir:
+    description: Absolute path where the toolchain should be installed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Show runner environment
+      shell: bash
+      run: |
+        echo "=== Runner environment ==="
+        uname -a
+        echo "CPUs: $(nproc)"
+        echo "RAM : $(free -h | awk '/^Mem/{print $2}')"
+        echo "Disk: $(df -h . | awk 'NR==2{print $4}') free on workspace"
+        gcc --version | head -1
+        python3 --version
+
+    - name: Install build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          build-essential \
+          bzip2 \
+          curl \
+          m4 \
+          texinfo \
+          zlib1g-dev
+
+    - name: Download RosBE-Unix-2.2.1.tar.bz2
+      shell: bash
+      env:
+        ROSBE_TARBALL: RosBE-Unix-2.2.1.tar.bz2
+        ROSBE_TARBALL_URL: >-
+          https://sourceforge.net/projects/reactos/files/RosBE-Unix/2.2.1/RosBE-Unix-2.2.1.tar.bz2/download
+      run: |
+        curl \
+          --retry 3 \
+          --retry-delay 10 \
+          --max-time 300 \
+          --fail \
+          --location \
+          --output "$RUNNER_TEMP/$ROSBE_TARBALL" \
+          "$ROSBE_TARBALL_URL"
+        echo "Downloaded $(du -h "$RUNNER_TEMP/$ROSBE_TARBALL" | cut -f1)"
+
+    - name: Extract package
+      shell: bash
+      run: tar -C "$RUNNER_TEMP" -xjf "$RUNNER_TEMP/RosBE-Unix-2.2.1.tar.bz2"
+
+    - name: Install RosBE toolchain (non-interactive)
+      # Pass the install directory as $1 so RosBE-Builder.sh skips the
+      # interactive install-dir and "press Return" prompts.  Pipe "yes" to
+      # answer the non-root confirmation that the published 2.2.1 script
+      # still asks even when $1 is provided.
+      shell: bash
+      env:
+        ROSBE_INSTALL_DIR: ${{ inputs.install_dir }}
+      run: |
+        echo "yes" | "$RUNNER_TEMP/RosBE-Unix-2.2.1/RosBE-Builder.sh" "$ROSBE_INSTALL_DIR"
+
+    - name: Verify installation
+      shell: bash
+      env:
+        ROSBE_INSTALL_DIR: ${{ inputs.install_dir }}
+      run: |
+        echo "Installed version: $(cat "$ROSBE_INSTALL_DIR/RosBE-Version")"
+        "$ROSBE_INSTALL_DIR/i386/bin/i686-w64-mingw32-gcc" --version
+
+    - name: Cross-compile smoke test
+      # Compile a trivial C program for the i686-w64-mingw32 target to
+      # confirm the installed toolchain can produce PE/COFF output.
+      shell: bash
+      env:
+        ROSBE_INSTALL_DIR: ${{ inputs.install_dir }}
+      run: |
+        printf 'int main(void) { return 0; }\n' > "$RUNNER_TEMP/hello.c"
+        "$ROSBE_INSTALL_DIR/i386/bin/i686-w64-mingw32-gcc" \
+          -o "$RUNNER_TEMP/hello.exe" \
+          "$RUNNER_TEMP/hello.c"
+        echo "Cross-compilation smoke test passed."
+        file "$RUNNER_TEMP/hello.exe"
