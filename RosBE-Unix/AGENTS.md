@@ -70,27 +70,38 @@ choose the validation depth appropriate for a given PR.
 - [ ] GitHub Actions CI workflow — needs to be created
 
 
-## Next Actions / Decision Points
+## Next Actions
 
-Work through these items in order unless a later item becomes blocked on host
-or CI constraints:
+The items below are concrete sequential tasks.  Complete each before starting
+the next, unless there is a blocking external constraint.  See also the
+"Fork and Upstream Strategy" section for ongoing principles that apply
+throughout all work.
 
-1. Establish validation for the **existing** RosBE-Unix flow before adding new
-   automation:
-   - Verify the public `RosBE-Unix-2.2.1.tar.bz2` can be downloaded, installed,
-     and smoke-tested in the target CI environment.
-   - Verify the source archives referenced by `Git-Readme.txt` can be used to
-     build a fresh package with `makepackage.sh`.
-2. Introduce `compare-packages.sh` so the repackaged output can be compared to
-   the public 2.2.1 release while tolerating the known historical differences.
-3. Introduce `fetch-sources.sh` to replace the manual source-preparation step
-   and connect it to `makepackage.sh`.
-4. Expand CI gradually from static validation to package comparison, then to
-   installation via `RosBE-Builder.sh`, and only later to deeper end-to-end
-   validation such as building ReactOS with the installed toolchain.
-5. Keep a parallel upstream plan: code intended for upstream should remain
-   reviewable without relying on agent-specific workflow files or process
-   assumptions from this fork.
+1. **Validate the existing RosBE-Unix 2.2.1 release end-to-end.**
+   Download the published `RosBE-Unix-2.2.1.tar.bz2`, install it via
+   `RosBE-Builder.sh`, and use the resulting toolchain to build ReactOS.
+   This confirms the current release still works in the CI environment and
+   surfaces any host-environment issues before we start changing anything.
+   Add a CI job for this step.
+
+2. **Validate `makepackage.sh` using pre-built source archives.**
+   Download the source archives from `https://svn.reactos.org/RosBE-Sources/rosbe_2.2.1/`
+   (as documented in `Git-Readme.txt`), run `makepackage.sh`, and verify the
+   output can be installed and used to build ReactOS.
+   Add a CI job for this step.
+
+3. **Write and validate `compare-packages.sh`.**
+   Implement the script (see Script Design section), use it to compare the
+   package built in step 2 against the public 2.2.1 release, and add
+   a CI job that runs this comparison.  This connects the two existing
+   processes and gives us a reproducibility baseline.
+
+4. **Write and validate `fetch-sources.sh`.**
+   Implement the script (see Script Design section).  Replace the manual SVN
+   source download in step 2 with `fetch-sources.sh`, confirm the output of
+   `makepackage.sh` still passes `compare-packages.sh`, and add or update the
+   CI job accordingly.  Add static checks (`bash -n`, `shellcheck`) for both
+   new scripts as part of the PRs that introduce them.
 
 
 ## Script Design
@@ -391,30 +402,45 @@ Agents **must** follow this workflow before declaring any task complete:
    Remember: do **not** apply `cmake.patch` to the sources before this
    comparison (see "Known Differences").
 
-5. **CI:** Once the GitHub Actions workflow exists, ensure it passes.
+5. **CI:** Each PR that introduces a script or workflow change must pass the
+   relevant CI jobs.  New scripts must also pass `bash -n` and `shellcheck`
+   as part of the PR that introduces them.
 
-### CI rollout order
+### CI jobs and their order
 
-Because the repository currently has no automated validation, CI should first
-cover the **existing** RosBE-Unix functionality and only then extend to the
-new automation work.  A good rollout order is:
+Each CI job below corresponds to a step in the "Next Actions" roadmap and
+should be added in that order, because each one builds on the confidence
+established by the previous.
 
-1. Static checks for new scripts (`bash -n`, `shellcheck`).
-2. Smoke-test the published `RosBE-Unix-2.2.1.tar.bz2` in CI to confirm the
-   current release can run in the hosted environment.
-3. Validate `makepackage.sh` using the published source archives referenced in
-   `Git-Readme.txt`.
-4. Add `compare-packages.sh` to connect the existing packaging flow to the
-   published reference package.
-5. Add `fetch-sources.sh` validation once the existing package/repackage flow
-   is stable.
-6. Expand to `RosBE-Builder.sh` installation coverage and, if feasible later,
-   a ReactOS build using the installed toolchain.
+1. **Install the published release (`Next Action 1`)** — Download
+   `RosBE-Unix-2.2.1.tar.bz2`, install it via `RosBE-Builder.sh`, and
+   compile a ReactOS build with the resulting toolchain.  This is the first CI
+   job added and validates the current release in our hosted environment before
+   any code is changed.
 
-This "backwards first" sequence is acceptable because it provides the clearest
-regression story for upstream reviewers: first prove the current release still
-works, then prove the repository can reproduce it, then replace manual steps
-with automation.
+2. **Repackage from pre-built archives (`Next Action 2`)** — Download the
+   pre-built source archives from
+   `https://svn.reactos.org/RosBE-Sources/rosbe_2.2.1/`, run `makepackage.sh`,
+   install the resulting package, and repeat the ReactOS build.  This validates
+   that the repository's existing packaging scripts still work independently of
+   the published binary.
+
+3. **Compare packages (`Next Action 3`)** — Run `compare-packages.sh` on the
+   package built in job 2 against the published `RosBE-Unix-2.2.1.tar.bz2`.
+   Added when `compare-packages.sh` is written.
+
+4. **Full fetch-then-build pipeline (`Next Action 4`)** — Run
+   `fetch-sources.sh`, then `makepackage.sh`, then `compare-packages.sh`, then
+   `RosBE-Builder.sh`, then the ReactOS build.  Added when `fetch-sources.sh`
+   is written.
+
+Adding CI jobs in this order provides the clearest regression story for
+upstream reviewers: first prove the current release works in CI, then prove the
+repository can reproduce it, then replace manual steps with automation.
+
+If an integration test cannot be run in your environment (e.g. no internet
+access or missing build tools), state this explicitly in your PR description
+and confirm that at least `bash -n` and `shellcheck` pass for any new scripts.
 
 
 ## Fork and Upstream Strategy
@@ -432,10 +458,6 @@ upstream RosBE repository.
   especially for existing functionality such as `makepackage.sh`,
   `RosBE-Builder.sh`, and the published RosBE 2.2.1 package/install flow.
 
-If an integration test cannot be run in your environment (e.g. no internet
-access or missing build tools), state this explicitly in your PR description
-and confirm that at least steps 1 and 2 pass.
-
 
 ## Discussion Log
 
@@ -449,11 +471,13 @@ have context.  Add new entries at the top.
 - Clarified that `fetch-sources.sh` must not assume `~/.rosbe-work`; new work
   should stay consistent with the existing in-repo RosBE workflow unless there
   is a strong reason to diverge.
-- Added an explicit roadmap that starts by validating the published RosBE 2.2.1
-  package and existing `makepackage.sh` / `RosBE-Builder.sh` flow before adding
-  new automation layers.
-- Documented that a "backwards first" CI rollout is acceptable because it gives
-  the best regression story for future upstream PRs.
+- Rewrote "Next Actions" as a concrete sequential task list; moved ongoing
+  principles (CI expansion, upstream plan) to separate sections.
+- Adopted a "backwards first" CI rollout: first validate the published 2.2.1
+  package end-to-end (install + ReactOS build), then the existing packaging
+  scripts, then add compare-packages.sh, then add fetch-sources.sh.  Static
+  checks for new scripts are added in the same PR that introduces them, not as
+  a prior phase.
 - Recorded additional reproducibility notes: flex diffs may require Debian-
   patched host tools and timestamp normalisation; CMake may need `git clone`
   rather than `git archive`; binutils must be prepared from a clean tree.
