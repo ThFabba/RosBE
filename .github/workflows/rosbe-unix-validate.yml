@@ -4,6 +4,8 @@
 #   - Downloads pre-built source archives from the ReactOS SVN mirror via
 #     RosBE-Unix/fetch-sources.sh.
 #   - Bundles them into a distributable package using makepackage.sh.
+#   - Compares the generated package against the official RosBE-Unix-2.2.1.tar.bz2
+#     release using compare-packages.sh, with known differences excluded.
 #   - Installs the generated package via RosBE-Builder.sh.
 #   - Verifies the installed cross-compiler with a cross-compile smoke test.
 #
@@ -25,11 +27,13 @@ on:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
   pull_request:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
 
 permissions:
@@ -60,6 +64,17 @@ jobs:
         shell: bash
         working-directory: ${{ github.workspace }}/RosBE-Unix
         run: ./makepackage.sh Base-i386 "$ROSBE_VERSION"
+
+      - name: Download reference package (official RosBE-Unix-2.2.1.tar.bz2)
+        id: download_reference
+        uses: ./.github/actions/download-rosbe
+
+      - name: Compare generated package against reference
+        shell: bash
+        run: |
+          RosBE-Unix/compare-packages.sh \
+            "${{ github.workspace }}/RosBE-Unix/RosBE-Unix-$ROSBE_VERSION.tar.bz2" \
+            "${{ steps.download_reference.outputs.tarball_path }}"
 
       - name: Install RosBE and run smoke test
         uses: ./.github/actions/install-rosbe

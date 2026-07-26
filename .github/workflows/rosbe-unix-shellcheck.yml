@@ -49,3 +49,7 @@ jobs:
       - name: shellcheck — fetch-sources.sh
         shell: bash
         run: shellcheck RosBE-Unix/fetch-sources.sh
+
+      - name: shellcheck — compare-packages.sh
+        shell: bash
+        run: shellcheck RosBE-Unix/compare-packages.sh
