@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 #
-# ReactOS Build Environment for Unix-based Operating Systems - Source Archive Fetcher
-# Copyright 2024 Colin Finck <colin@reactos.org>
-#
-# Released under GNU GPL v2 or any later version.
-#
 # Downloads the pre-built RosBE 2.2.1 source archives from the ReactOS SVN
 # mirror into Base-i386/sources/, and generates a README.pdf placeholder so
 # that makepackage.sh can run without additional dependencies.
@@ -19,9 +14,7 @@ set -e
 #
 # Get the absolute path to the script directory
 #
-# shellcheck disable=SC2006,SC2046
-# Reason: follows existing RosBE script convention (see AGENTS.md, Script Design)
-cd `dirname "$0"`
+cd "$(dirname "$0")" || exit
 rs_scriptdir="$PWD"
 
 #

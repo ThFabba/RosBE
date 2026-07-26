@@ -49,7 +49,7 @@ jobs:
     steps:
       - name: Checkout repository
         # Required so that the local composite actions are available on disk.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch pre-built source archives
         shell: bash

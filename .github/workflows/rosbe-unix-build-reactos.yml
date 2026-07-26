@@ -65,7 +65,7 @@ jobs:
     steps:
       - name: Checkout repository
         # Required so that the local composite actions are available on disk.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Fetch pre-built source archives
         shell: bash
@@ -87,7 +87,7 @@ jobs:
         run: df -h .
 
       - name: Checkout ReactOS source (shallow)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: reactos/reactos
           # Empty ref uses the repository default branch.
