@@ -1,8 +1,10 @@
-# Validate the published RosBE-Unix 2.2.1 release end-to-end.
+# Validate the RosBE-Unix packaging pipeline end-to-end.
 #
 # This workflow:
-#   - Downloads the official RosBE-Unix-2.2.1.tar.bz2 from SourceForge.
-#   - Runs RosBE-Builder.sh to compile and install the full toolchain.
+#   - Downloads pre-built source archives from the ReactOS SVN mirror via
+#     RosBE-Unix/fetch-sources.sh.
+#   - Bundles them into a distributable package using makepackage.sh.
+#   - Installs the generated package via RosBE-Builder.sh.
 #   - Verifies the installed cross-compiler with a cross-compile smoke test.
 #
 # For a full ReactOS build, use the separate "RosBE-Unix — Build ReactOS"
@@ -12,10 +14,9 @@
 #   - Compiling the toolchain (GCC 8.4.0 cross-compiler, binutils, CMake, etc.)
 #     takes approximately 60–90 minutes on a standard ubuntu-latest runner
 #     (4 vCPUs, 16 GB RAM, Ubuntu 24.04).
-#   - The download step lives in .github/actions/download-rosbe/action.yml.
 #   - The install and smoke-test steps live in .github/actions/install-rosbe/action.yml.
 
-name: RosBE-Unix — Validate installed release
+name: RosBE-Unix — Validate packaged release
 
 on:
   push:
@@ -24,37 +25,44 @@ on:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
-      - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
   pull_request:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
-      - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
 
 permissions:
   contents: read
 
 jobs:
-  install-rosbe:
-    name: Install RosBE 2.2.1 and cross-compile smoke test
+  build-and-install-rosbe:
+    name: Build RosBE package and cross-compile smoke test
     runs-on: ubuntu-latest
     # Toolchain compilation typically finishes within 90 minutes; 120 gives
     # headroom for slow runners without masking genuine hangs.
     timeout-minutes: 120
+    env:
+      ROSBE_VERSION: 2.2.1
+      ROSBE_INSTALL_DIR: ${{ github.workspace }}/rosbe-install
 
     steps:
       - name: Checkout repository
         # Required so that the local composite actions are available on disk.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Download RosBE package
-        id: download
-        uses: ./.github/actions/download-rosbe
+      - name: Fetch pre-built source archives
+        shell: bash
+        working-directory: ${{ github.workspace }}/RosBE-Unix
+        run: ./fetch-sources.sh
+
+      - name: Build RosBE package
+        shell: bash
+        working-directory: ${{ github.workspace }}/RosBE-Unix
+        run: ./makepackage.sh Base-i386 "$ROSBE_VERSION"
 
       - name: Install RosBE and run smoke test
         uses: ./.github/actions/install-rosbe
         with:
-          tarball_path: ${{ steps.download.outputs.tarball_path }}
-          install_dir: ${{ github.workspace }}/rosbe-install
+          tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
+          install_dir: ${{ env.ROSBE_INSTALL_DIR }}
