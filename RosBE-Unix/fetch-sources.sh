@@ -14,7 +14,7 @@ set -e
 #
 # Get the absolute path to the script directory
 #
-cd "$(dirname "$0")" || exit
+cd "$(dirname "$0")"
 rs_scriptdir="$PWD"
 
 #
