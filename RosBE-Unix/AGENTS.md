@@ -524,17 +524,17 @@ The script accepts two positional arguments: the generated package (produced by
 It extracts both packages to a `mktemp -d` temporary directory (cleaned up via a
 `trap EXIT`) and then compares:
 
-1. Each source archive individually — both copies are extracted and their
-   top-level directories are compared with `diff -rq` plus the per-tool
+1. Each source archive individually — both copies are extracted with
+   `tar --strip-components=1` and compared with `diff -ru` plus the per-tool
    exclusions documented in the "Known Differences" section of AGENTS.md.
    Comparing extracted contents (not the `.tar.bz2` bytes) tolerates the
-   known compression differences.
+   known compression differences.  The full diff is output on failure.
 
-2. All non-source files — the top-level package directories are compared with
-   `diff -rq --exclude=sources --exclude=README.pdf`.  The `sources/`
+2. All non-source files — the extracted package directories are compared with
+   `diff -ru --exclude=sources --exclude=README.pdf`.  The `sources/`
    subtree is covered by the archive-level comparisons above; `README.pdf` is
-   excluded because the generated package uses a minimal placeholder while the
-   official release contains a real PDF.
+   excluded because PDFs cannot be meaningfully compared (their binary
+   representation varies with the tooling used to generate them).
 
 The script does **not** apply `cmake.patch` before running, consistent with the
 AGENTS.md note that the patch was not applied when the 2.2.1 release was built.
@@ -545,14 +545,15 @@ script passes `bash -n` and `shellcheck` without warnings.
 
 **CI integration:**
 
-A "Download reference package" step and a "Compare generated package against
-reference" step were inserted into `rosbe-unix-validate.yml` between the
-`makepackage.sh` step and the `install-rosbe` step.  The download step reuses
-the existing `.github/actions/download-rosbe` composite action and exposes the
-tarball path via its output.  The compare step calls `compare-packages.sh` with
-both paths.
+The generated package is uploaded as a downloadable artifact after the
+`makepackage.sh` step.  A separate `compare-packages` job was added to
+`rosbe-unix-validate.yml`; it runs only on pull requests with the
+`ci: compare-packages` label (most code changes are expected to alter the
+package, so the comparison is not run on every push).  The job downloads the
+uploaded artifact and the official release via `.github/actions/download-rosbe`,
+then runs `compare-packages.sh` with both paths.
 
-`compare-packages.sh` was also added to the shellcheck job in
+`compare-packages.sh` was also added to the shellcheck step in
 `rosbe-unix-shellcheck.yml`.
 
 ---
