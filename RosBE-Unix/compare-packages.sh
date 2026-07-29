@@ -53,7 +53,6 @@ rs_compare_source_archive()
 # Compare source archives
 #
 # Per-tool exclusions are documented in AGENTS.md ("Known Differences").
-# cmake.patch was NOT applied for the 2.2.1 release; compare unpatched trees.
 #
 echo
 echo "=== Comparing source archives ==="
@@ -71,8 +70,8 @@ rs_compare_source_archive "ninja"
 #
 # Compare non-source files
 #
-# PDFs are excluded because their binary representation varies with the tooling
-# used to generate them.  Source archives were compared above.
+# README.pdf is excluded because its binary representation varies with the
+# tooling used to generate it.  Source archives were compared above.
 #
 echo
 echo "=== Comparing non-source files ==="
