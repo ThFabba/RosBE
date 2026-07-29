@@ -10,6 +10,8 @@
 #
 # If the "ci: compare-packages" label is applied to a PR, a second job runs
 # compare-packages.sh against the official release using the uploaded artifact.
+# Apply the label before or after pushing; either way a new run will be
+# triggered that includes the comparison job.
 #
 # For a full ReactOS build, use the separate "RosBE-Unix — Build ReactOS"
 # workflow (manual trigger only).
@@ -32,6 +34,7 @@ on:
       - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
