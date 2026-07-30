@@ -73,9 +73,20 @@ rs_compare_source_archive "ninja"
 # README.pdf is excluded because its binary representation varies with the
 # tooling used to generate it.  Source archives were compared above.
 #
+# The following files differ from the 2.2.1 reference due to intentional
+# changes made after that release:
+#   RosBE-Builder.sh — interactive-only root check; explicit python invocation
+#   RosBE-rc         — PATH preservation fix (commit 7ae7c50)
+#   cpucount.c       — copyright year update (commit a86ee7e)
+#   scut.c           — copyright year update (commit a86ee7e)
+#
 echo
 echo "=== Comparing non-source files ==="
-diff -ru --exclude=sources --exclude=README.pdf "$rs_tmpdir/gen" "$rs_tmpdir/ref" || rs_failed=1
+diff -ru \
+	--exclude=sources --exclude=README.pdf \
+	--exclude=RosBE-Builder.sh --exclude=RosBE-rc \
+	--exclude=cpucount.c --exclude=scut.c \
+	"$rs_tmpdir/gen" "$rs_tmpdir/ref" || rs_failed=1
 
 echo
 if [[ "$rs_failed" -ne 0 ]]; then
