@@ -97,6 +97,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          # compare-packages.sh uses `git diff RosBE-2.2.1..HEAD` to patch the
+          # reference before comparing.  The tag must be present.
+          fetch-tags: true
 
       - name: Download generated package
         uses: actions/download-artifact@v4

@@ -68,25 +68,46 @@ rs_compare_source_archive "mpfr"
 rs_compare_source_archive "ninja"
 
 #
+# Apply post-release changes to the extracted reference so that the comparison
+# below validates against the current working tree, not the 2.2.1 snapshot.
+#
+# RosBE-Unix/Base-i386/ changes are applied with -p3 (strips a/RosBE-Unix/Base-i386/).
+# README.odt and Git-Readme.txt are excluded because makepackage.sh removes them.
+# Tools/ changes are applied with -p2 (strips a/Tools/) into the tools/ subdirectory.
+#
+rs_scriptdir=$(cd "$(dirname "$0")" && pwd)
+rs_reporoot=$(git -C "$rs_scriptdir" rev-parse --show-toplevel 2>/dev/null) || true
+rs_reltag="RosBE-2.2.1"
+
+if [[ -z "$rs_reporoot" ]]; then
+	echo "ERROR: compare-packages.sh must be run from within the RosBE git repository."
+	exit 1
+fi
+if ! git -C "$rs_reporoot" rev-parse --verify "$rs_reltag" >/dev/null 2>&1; then
+	echo "ERROR: Release tag '$rs_reltag' not found."
+	echo "Fetch it with: git fetch https://github.com/reactos/RosBE.git 'refs/tags/$rs_reltag:refs/tags/$rs_reltag'"
+	exit 1
+fi
+
+echo
+echo "=== Applying post-release patch to reference ==="
+git -C "$rs_reporoot" diff "$rs_reltag"..HEAD \
+	-- 'RosBE-Unix/Base-i386/' \
+	':(exclude)RosBE-Unix/Base-i386/README.odt' \
+	':(exclude)*/Git-Readme.txt' \
+	| patch -d "$rs_tmpdir/ref" -p3
+git -C "$rs_reporoot" diff "$rs_reltag"..HEAD -- Tools/cpucount.c Tools/scut.c \
+	| patch -d "$rs_tmpdir/ref/tools" -p2
+
+#
 # Compare non-source files
 #
 # README.pdf is excluded because its binary representation varies with the
 # tooling used to generate it.  Source archives were compared above.
 #
-# The following files differ from the 2.2.1 reference due to intentional
-# changes made after that release:
-#   RosBE-Builder.sh — interactive-only root check; explicit python invocation
-#   RosBE-rc         — PATH preservation fix (commit 7ae7c50)
-#   cpucount.c       — copyright year update (commit a86ee7e)
-#   scut.c           — copyright year update (commit a86ee7e)
-#
 echo
 echo "=== Comparing non-source files ==="
-diff -ru \
-	--exclude=sources --exclude=README.pdf \
-	--exclude=RosBE-Builder.sh --exclude=RosBE-rc \
-	--exclude=cpucount.c --exclude=scut.c \
-	"$rs_tmpdir/gen" "$rs_tmpdir/ref" || rs_failed=1
+diff -ru --exclude=sources --exclude=README.pdf "$rs_tmpdir/gen" "$rs_tmpdir/ref" || rs_failed=1
 
 echo
 if [[ "$rs_failed" -ne 0 ]]; then
