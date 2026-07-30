@@ -95,6 +95,7 @@ git -C "$rs_reporoot" diff "$rs_reltag"..HEAD \
 	-- 'RosBE-Unix/Base-i386/' \
 	':(exclude)RosBE-Unix/Base-i386/README.odt' \
 	':(exclude)*/Git-Readme.txt' \
+	':(exclude)*/SVN-Readme.txt' \
 	| patch -d "$rs_tmpdir/ref" -p3
 git -C "$rs_reporoot" diff "$rs_reltag"..HEAD -- Tools/cpucount.c Tools/scut.c \
 	| patch -d "$rs_tmpdir/ref/tools" -p2
