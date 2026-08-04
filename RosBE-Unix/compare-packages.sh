@@ -72,8 +72,11 @@ rs_compare_source_archive "ninja"
 # below validates against the current working tree, not the 2.2.1 snapshot.
 #
 # RosBE-Unix/Base-i386/ changes are applied with -p3 (strips a/RosBE-Unix/Base-i386/).
-# README.odt and Git-Readme.txt are excluded because makepackage.sh removes them.
-# Tools/ changes are applied with -p2 (strips a/Tools/) into the tools/ subdirectory.
+# README.odt, Git-Readme.txt, and SVN-Readme.txt are excluded because makepackage.sh
+# removes them.
+# Tools/ files are copied directly from the working tree because the official release
+# package was built from a state that predates the RosBE-2.2.1 tag, making a
+# git-diff-based patch unreliable.
 #
 rs_scriptdir=$(cd "$(dirname "$0")" && pwd)
 rs_reporoot=$(git -C "$rs_scriptdir" rev-parse --show-toplevel 2>/dev/null) || true
@@ -97,8 +100,8 @@ git -C "$rs_reporoot" diff "$rs_reltag"..HEAD \
 	':(exclude)*/Git-Readme.txt' \
 	':(exclude)*/SVN-Readme.txt' \
 	| patch -d "$rs_tmpdir/ref" -p3
-git -C "$rs_reporoot" diff "$rs_reltag"..HEAD -- Tools/cpucount.c Tools/scut.c \
-	| patch -d "$rs_tmpdir/ref/tools" -p2
+cp "$rs_reporoot/Tools/cpucount.c" "$rs_tmpdir/ref/tools/cpucount.c"
+cp "$rs_reporoot/Tools/scut.c" "$rs_tmpdir/ref/tools/scut.c"
 
 #
 # Compare non-source files
