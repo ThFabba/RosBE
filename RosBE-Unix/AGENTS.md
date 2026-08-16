@@ -73,8 +73,8 @@ choose the validation depth appropriate for a given PR.
 - [x] Agent guidance documentation (this file)
 - [ ] `fetch-sources.sh` — initial implementation in place (SVN download of pre-built archives + README.pdf placeholder); upstream-fetch logic and hash verification pending for Next Action 4
 - [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
-- [ ] `compare-packages.sh` — needs to be created (see design notes below)
-- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (now builds from pre-built sources via `fetch-sources.sh`; Next Actions 1 & 2)
+- [x] `compare-packages.sh` — created; compares source archives and non-source files with per-tool exclusions using `diff -ru`; outputs full diffs on failure; optional CI job in `rosbe-unix-validate.yml` (label-triggered via `ci: compare-packages`)
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (builds from pre-built sources via `fetch-sources.sh`, installs, uploads generated package as artifact; conditional `compare-packages` job added with `ci: compare-packages` PR label; Next Actions 1, 2 & 3)
 - [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-build-reactos.yml` (full ReactOS build using the same packaged toolchain; manual trigger)
 
 
@@ -474,6 +474,87 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-07 — Next Action 3 revision based on PR review
+(copilot/update-agents-md-status-and-log branch)**
+
+`compare-packages.sh` simplified following review:
+- Copyright line removed (agent-authored file).
+- Archive-existence checks removed; `set -e` + `tar` failure is sufficient.
+- `find -maxdepth 1` top-level-directory detection removed.  Both packages and
+  source archives are now extracted with `tar --strip-components=1`, placing
+  contents directly under `$rs_tmpdir/gen/` and `$rs_tmpdir/ref/` (packages)
+  or `$rs_tmpdir/{gen,ref}_src/<name>/` (archives).  `diff` is then run
+  directly on those directories; `--exclude` patterns work at any depth.
+- Diff format changed from `-rq` (filenames only) to `-ru` so the full diff
+  is output when differences are found, making CI failures debuggable.
+- README.pdf exclusion comment corrected: PDFs are excluded because their
+  binary representation varies by tooling, not because the package uses a
+  placeholder.
+
+CI architecture changed from an inline step to an optional job:
+- The inline download-reference + compare steps were removed from the
+  `build-and-install-rosbe` job.
+- The generated package is now uploaded as a downloadable artifact after
+  the `makepackage.sh` step (useful for manual testing regardless of whether
+  the comparison runs).
+- A new `compare-packages` job was added; it `needs: build-and-install-rosbe`
+  and runs only on pull requests with the `ci: compare-packages` label.  It
+  downloads the artifact and the official release, then runs
+  `compare-packages.sh`.  Most code changes are expected to alter the generated
+  package, so the comparison is intentionally not run on every push.
+
+`rosbe-unix-shellcheck.yml`: the two separate shellcheck steps were combined
+into a single step that lists all new-style scripts.
+
+---
+
+**2026-07 — Next Action 3: compare-packages.sh and CI integration
+(copilot/update-agents-md-status-and-log branch)**
+
+Implemented `RosBE-Unix/compare-packages.sh` and added a CI step to
+`rosbe-unix-validate.yml`.
+
+**Script design:**
+
+The script accepts two positional arguments: the generated package (produced by
+`makepackage.sh`) and the reference package (the official `RosBE-Unix-2.2.1.tar.bz2`).
+It extracts both packages to a `mktemp -d` temporary directory (cleaned up via a
+`trap EXIT`) and then compares:
+
+1. Each source archive individually — both copies are extracted with
+   `tar --strip-components=1` and compared with `diff -ru` plus the per-tool
+   exclusions documented in the "Known Differences" section of AGENTS.md.
+   Comparing extracted contents (not the `.tar.bz2` bytes) tolerates the
+   known compression differences.  The full diff is output on failure.
+
+2. All non-source files — the extracted package directories are compared with
+   `diff -ru --exclude=sources --exclude=README.pdf`.  The `sources/`
+   subtree is covered by the archive-level comparisons above; `README.pdf` is
+   excluded because PDFs cannot be meaningfully compared (their binary
+   representation varies with the tooling used to generate them).
+
+The script does **not** apply `cmake.patch` before running, consistent with the
+AGENTS.md note that the patch was not applied when the 2.2.1 release was built.
+
+`compare-packages.sh` does not need to reference files relative to its own
+directory, so the `cd \`dirname $0\` / rs_scriptdir` preamble was omitted.  The
+script passes `bash -n` and `shellcheck` without warnings.
+
+**CI integration:**
+
+The generated package is uploaded as a downloadable artifact after the
+`makepackage.sh` step.  A separate `compare-packages` job was added to
+`rosbe-unix-validate.yml`; it runs only on pull requests with the
+`ci: compare-packages` label (most code changes are expected to alter the
+package, so the comparison is not run on every push).  The job downloads the
+uploaded artifact and the official release via `.github/actions/download-rosbe`,
+then runs `compare-packages.sh` with both paths.
+
+`compare-packages.sh` was also added to the shellcheck step in
+`rosbe-unix-shellcheck.yml`.
 
 ---
 

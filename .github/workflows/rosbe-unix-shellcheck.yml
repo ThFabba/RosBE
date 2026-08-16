@@ -3,13 +3,13 @@
 # This workflow:
 #   - Runs `bash -n` (syntax check) on every .sh file under RosBE-Unix/.
 #   - Runs `shellcheck` on scripts that follow modern shell style conventions,
-#     currently: fetch-sources.sh.
+#     currently: fetch-sources.sh and compare-packages.sh.
 #     Older scripts (makepackage.sh, Base-i386/**) have many pre-existing
 #     warnings across a wide range of codes (SC2046, SC2086, SC2148, SC2164,
 #     SC2034, etc.).  Adding them to shellcheck would require suppressing most
 #     of those codes, leaving little practical coverage.  They are covered by
 #     `bash -n` only until they are modernised.
-#     Add new scripts here as they are introduced.
+#     Add new scripts to the shellcheck step below as they are introduced.
 #
 # Both tools are pre-installed on ubuntu-latest; no install step is needed.
 
@@ -46,6 +46,9 @@ jobs:
           find RosBE-Unix -name '*.sh' -print0 \
             | xargs -0 -I{} bash -n {}
 
-      - name: shellcheck — fetch-sources.sh
+      - name: shellcheck — new-style scripts
         shell: bash
-        run: shellcheck RosBE-Unix/fetch-sources.sh
+        run: |
+          shellcheck \
+            RosBE-Unix/fetch-sources.sh \
+            RosBE-Unix/compare-packages.sh

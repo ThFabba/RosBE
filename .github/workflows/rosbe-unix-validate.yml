@@ -3,9 +3,15 @@
 # This workflow:
 #   - Downloads pre-built source archives from the ReactOS SVN mirror via
 #     RosBE-Unix/fetch-sources.sh.
-#   - Bundles them into a distributable package using makepackage.sh.
+#   - Bundles them into a distributable package using makepackage.sh and
+#     uploads it as a downloadable artifact.
 #   - Installs the generated package via RosBE-Builder.sh.
 #   - Verifies the installed cross-compiler with a cross-compile smoke test.
+#
+# If the "ci: compare-packages" label is applied to a PR, a second job runs
+# compare-packages.sh against the official release using the uploaded artifact.
+# Apply the label before or after pushing; either way a new run will be
+# triggered that includes the comparison job.
 #
 # For a full ReactOS build, use the separate "RosBE-Unix — Build ReactOS"
 # workflow (manual trigger only).
@@ -25,11 +31,14 @@ on:
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
+      - '.github/actions/download-rosbe/**'
       - '.github/actions/install-rosbe/**'
 
 permissions:
@@ -61,8 +70,50 @@ jobs:
         working-directory: ${{ github.workspace }}/RosBE-Unix
         run: ./makepackage.sh Base-i386 "$ROSBE_VERSION"
 
+      - name: Upload generated package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosbe-package
+          path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
+
       - name: Install RosBE and run smoke test
         uses: ./.github/actions/install-rosbe
         with:
           tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
           install_dir: ${{ env.ROSBE_INSTALL_DIR }}
+
+  compare-packages:
+    name: Compare generated package against official release
+    needs: build-and-install-rosbe
+    # Run on every push to a PR that has the "ci: compare-packages" label.
+    # Most code changes are expected to alter the generated package, so the
+    # comparison is not run on every push.
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'ci: compare-packages')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # compare-packages.sh uses `git diff RosBE-2.2.1..HEAD` to patch the
+          # reference before comparing.  The tag must be present.
+          fetch-tags: true
+
+      - name: Download generated package
+        uses: actions/download-artifact@v4.1.3
+        with:
+          name: rosbe-package
+          path: ${{ runner.temp }}/package
+
+      - name: Download reference package
+        id: download_reference
+        uses: ./.github/actions/download-rosbe
+
+      - name: Compare packages
+        shell: bash
+        run: |
+          gen_pkg=$(find "$RUNNER_TEMP/package" -maxdepth 1 -name "*.tar.bz2")
+          RosBE-Unix/compare-packages.sh "$gen_pkg" "${{ steps.download_reference.outputs.tarball_path }}"
