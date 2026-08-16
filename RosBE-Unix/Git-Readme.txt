@@ -1,10 +1,19 @@
 Information
 ------------
 
-This "RosBE-Unix" Git directory is just for tracking changes in the script
-files.
-It does not contain a fully functional Build Environment as some packages are
-missing in the "sources" directory.
+This "RosBE-Unix" Git directory tracks the script files for the ReactOS Build
+Environment for Unix-based operating systems.
 
-You can download a full RosBE-Unix package from
-https://sourceforge.net/project/showfiles.php?group_id=6553&package_id=308458
+It does not contain a fully functional Build Environment as the source
+archives (binutils, GCC, etc.) are not stored in Git.
+
+To create a distributable package:
+  1. Run fetch-sources.sh to download and prepare the source archives.
+  2. Run makepackage.sh to bundle everything into a distributable tarball.
+
+See AGENTS.md for full documentation on the packaging automation project,
+including design decisions, testing workflow, and guidance for contributors
+and AI agents working on this code.
+
+You can download a pre-built RosBE-Unix package from
+https://sourceforge.net/projects/reactos/files/RosBE-Unix/
