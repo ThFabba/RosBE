@@ -1,0 +1,25 @@
+name: Install fetch-sources prerequisites
+description: Install the host tools required by RosBE-Unix/fetch-sources.sh
+
+runs:
+  using: composite
+  steps:
+    - name: Install fetch-sources prerequisites
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends \
+          autoconf \
+          automake \
+          bison \
+          build-essential \
+          curl \
+          gettext \
+          help2man \
+          libtool \
+          libtool-bin \
+          patch \
+          texinfo \
+          unzip \
+          xz-utils \
+          zip

@@ -7,10 +7,12 @@
 
 set -eE
 
+shopt -s dotglob nullglob
+
 #
 # Get the absolute path to the script directory
 #
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")"
 rs_scriptdir="$PWD"
 rs_reporoot="$(cd "$rs_scriptdir/.." && pwd)"
 
@@ -91,7 +93,7 @@ trap rs_show_failure ERR
 
 rs_add_checksum()
 {
-	printf '%s  %s\n' "$1" "$2" >> "$rs_checksum_file"
+	printf '%s *%s\n' "$1" "$2" >> "$rs_checksum_file"
 }
 
 rs_check_required_tools()
@@ -173,9 +175,7 @@ rs_get_single_directory()
 	local rs_dir="$1"
 	local rs_entries=()
 
-	shopt -s dotglob nullglob
 	rs_entries=("$rs_dir"/*)
-	shopt -u dotglob nullglob
 
 	if [[ ${#rs_entries[@]} -ne 1 || ! -d "${rs_entries[0]}" ]]; then
 		echo "Unexpected archive layout in \"$rs_dir\"" >> "$rs_workdir/build.log"
@@ -210,19 +210,17 @@ rs_prepare_flex()
 
 	echo "Running flex autogen.sh..."
 	(
-		cd "$rs_source_dir" || exit 1
+		cd "$rs_source_dir"
 		rs_do_command ./autogen.sh
 	)
 
 	echo "Running flex make dist..."
 	(
-		cd "$rs_source_dir" || exit 1
+		cd "$rs_source_dir"
 		rs_do_command "$rs_makecmd" dist
 	)
 
-	shopt -s nullglob
 	rs_dist_archive=("$rs_source_dir"/flex-*.tar.gz)
-	shopt -u nullglob
 
 	if [[ ${#rs_dist_archive[@]} -ne 1 ]]; then
 		echo "Unexpected flex dist output in \"$rs_source_dir\"" >> "$rs_workdir/build.log"
@@ -246,11 +244,6 @@ rs_prepare_gmp()
 	rs_apply_patch "$rs_source_dir" "$rs_gmp_patch"
 }
 
-rs_prepare_plain_source()
-{
-	return 0
-}
-
 rs_pack_source_archive()
 {
 	local rs_name="$1"
@@ -264,19 +257,20 @@ rs_prepare_source_archive()
 {
 	local rs_name="$1"
 	local rs_archive="$2"
-	local rs_prepare_function="$3"
+	local rs_prepare_function="${3:-}"
 	local rs_extract_dir="$rs_extracts_dir/$rs_name-src"
-	local rs_prepared_dir="${rs_extracts_dir:?}/$rs_name"
 	local rs_source_dir
 
 	echo "Preparing $rs_name..."
-	rm -rf "$rs_extract_dir" "$rs_prepared_dir"
+	rm -rf "$rs_extract_dir"
 	mkdir -p "$rs_extract_dir"
 	rs_extract_archive "$rs_downloads_dir/$rs_archive" "$rs_extract_dir"
 	rs_source_dir="$(rs_get_single_directory "$rs_extract_dir")"
-	mv "$rs_source_dir" "$rs_prepared_dir"
-	rs_source_dir="$rs_prepared_dir"
-	"$rs_prepare_function" "$rs_source_dir"
+	mv "$rs_source_dir" "${rs_extract_dir%%-src}"
+	rs_source_dir="${rs_extract_dir%%-src}"
+	if [[ -n "$rs_prepare_function" ]]; then
+		"$rs_prepare_function" "$rs_source_dir"
+	fi
 	rs_pack_source_archive "$rs_name" "$rs_source_dir"
 }
 
@@ -316,16 +310,26 @@ rs_check_required_tools
 #
 # Download the upstream sources and verify all hashes
 #
-rs_download_archive "binutils" "$rs_binutils_url" "$rs_binutils_archive" "$rs_binutils_sha256"
-rs_download_archive "bison" "$rs_bison_url" "$rs_bison_archive" "$rs_bison_sha256"
-rs_download_archive "cmake" "$rs_cmake_url" "$rs_cmake_archive" "$rs_cmake_sha256"
-rs_download_archive "flex" "$rs_flex_url" "$rs_flex_archive" "$rs_flex_sha256"
-rs_download_archive "gcc" "$rs_gcc_url" "$rs_gcc_archive" "$rs_gcc_sha256"
-rs_download_archive "gmp" "$rs_gmp_url" "$rs_gmp_archive" "$rs_gmp_sha256"
-rs_download_archive "mingw_w64" "$rs_mingw_w64_url" "$rs_mingw_w64_archive" "$rs_mingw_w64_sha256"
-rs_download_archive "mpc" "$rs_mpc_url" "$rs_mpc_archive" "$rs_mpc_sha256"
-rs_download_archive "mpfr" "$rs_mpfr_url" "$rs_mpfr_archive" "$rs_mpfr_sha256"
-rs_download_archive "ninja" "$rs_ninja_url" "$rs_ninja_archive" "$rs_ninja_sha256"
+# Each entry: "name|archive|url|sha256|prepare_function"
+# prepare_function is optional (empty = no extra preparation step)
+#
+rs_sources=(
+    "binutils|$rs_binutils_archive|$rs_binutils_url|$rs_binutils_sha256|"
+    "bison|$rs_bison_archive|$rs_bison_url|$rs_bison_sha256|rs_prepare_bison"
+    "cmake|$rs_cmake_archive|$rs_cmake_url|$rs_cmake_sha256|"
+    "flex|$rs_flex_archive|$rs_flex_url|$rs_flex_sha256|rs_prepare_flex"
+    "gcc|$rs_gcc_archive|$rs_gcc_url|$rs_gcc_sha256|"
+    "gmp|$rs_gmp_archive|$rs_gmp_url|$rs_gmp_sha256|rs_prepare_gmp"
+    "mingw_w64|$rs_mingw_w64_archive|$rs_mingw_w64_url|$rs_mingw_w64_sha256|"
+    "mpc|$rs_mpc_archive|$rs_mpc_url|$rs_mpc_sha256|"
+    "mpfr|$rs_mpfr_archive|$rs_mpfr_url|$rs_mpfr_sha256|"
+    "ninja|$rs_ninja_archive|$rs_ninja_url|$rs_ninja_sha256|"
+)
+
+for rs_entry in "${rs_sources[@]}"; do
+    IFS='|' read -r rs_name rs_archive rs_url rs_sha256 rs_prepare <<< "$rs_entry"
+    rs_download_archive "$rs_name" "$rs_url" "$rs_archive" "$rs_sha256"
+done
 rs_add_checksum "$rs_bison_patch_sha256" "$rs_bison_patch"
 rs_add_checksum "$rs_gmp_patch_sha256" "$rs_gmp_patch"
 rs_verify_downloads
@@ -334,16 +338,10 @@ rs_verify_downloads
 #
 # Prepare and repack the RosBE source archives
 #
-rs_prepare_source_archive "binutils" "$rs_binutils_archive" rs_prepare_plain_source
-rs_prepare_source_archive "bison" "$rs_bison_archive" rs_prepare_bison
-rs_prepare_source_archive "cmake" "$rs_cmake_archive" rs_prepare_plain_source
-rs_prepare_source_archive "flex" "$rs_flex_archive" rs_prepare_flex
-rs_prepare_source_archive "gcc" "$rs_gcc_archive" rs_prepare_plain_source
-rs_prepare_source_archive "gmp" "$rs_gmp_archive" rs_prepare_gmp
-rs_prepare_source_archive "mingw_w64" "$rs_mingw_w64_archive" rs_prepare_plain_source
-rs_prepare_source_archive "mpc" "$rs_mpc_archive" rs_prepare_plain_source
-rs_prepare_source_archive "mpfr" "$rs_mpfr_archive" rs_prepare_plain_source
-rs_prepare_source_archive "ninja" "$rs_ninja_archive" rs_prepare_plain_source
+for rs_entry in "${rs_sources[@]}"; do
+    IFS='|' read -r rs_name rs_archive rs_url rs_sha256 rs_prepare <<< "$rs_entry"
+    rs_prepare_source_archive "$rs_name" "$rs_archive" "$rs_prepare"
+done
 
 
 #
@@ -356,16 +354,10 @@ printf '%%PDF-1.4\n%%%%EOF\n' > "$rs_scriptdir/Base-i386/README.pdf"
 #
 # Verify the prepared archives
 #
-rs_verify_prepared_archive "binutils"
-rs_verify_prepared_archive "bison"
-rs_verify_prepared_archive "cmake"
-rs_verify_prepared_archive "flex"
-rs_verify_prepared_archive "gcc"
-rs_verify_prepared_archive "gmp"
-rs_verify_prepared_archive "mingw_w64"
-rs_verify_prepared_archive "mpc"
-rs_verify_prepared_archive "mpfr"
-rs_verify_prepared_archive "ninja"
+for rs_entry in "${rs_sources[@]}"; do
+    IFS='|' read -r rs_name rs_archive rs_url rs_sha256 rs_prepare <<< "$rs_entry"
+    rs_verify_prepared_archive "$rs_name"
+done
 
 echo
 echo "Done."

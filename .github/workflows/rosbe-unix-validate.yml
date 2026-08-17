@@ -32,6 +32,7 @@ on:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
       - '.github/actions/download-rosbe/**'
+      - '.github/actions/fetch-sources-prereqs/**'
       - '.github/actions/install-rosbe/**'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -39,6 +40,7 @@ on:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
       - '.github/actions/download-rosbe/**'
+      - '.github/actions/fetch-sources-prereqs/**'
       - '.github/actions/install-rosbe/**'
 
 permissions:
@@ -61,24 +63,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install fetch-sources prerequisites
-        shell: bash
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            autoconf \
-            automake \
-            bison \
-            build-essential \
-            curl \
-            gettext \
-            help2man \
-            libtool \
-            libtool-bin \
-            patch \
-            texinfo \
-            unzip \
-            xz-utils \
-            zip
+        uses: ./.github/actions/fetch-sources-prereqs
 
       - name: Fetch and prepare upstream source archives
         shell: bash
