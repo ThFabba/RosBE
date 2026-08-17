@@ -5,12 +5,6 @@
 #
 # Released under GNU GPL v2 or any later version.
 
-# Per-tool configuration variables (rs_<name>_{archive,url,sha256,prepare}) are
-# accessed indirectly via 'declare -n' in the download/prepare loops.
-# Static analysis cannot follow nameref indirection, so suppress the
-# "unused variable" warning for the entire file.
-# shellcheck disable=SC2034
-
 set -eE
 
 shopt -s dotglob nullglob
@@ -41,7 +35,6 @@ rs_bison_url="https://ftp.gnu.org/gnu/bison/$rs_bison_archive"
 rs_bison_sha256="c0dd154dfaba63553a892d41dc400c7baa88cc06a1e2e27813fdd503715e4c28"
 rs_bison_patch="$rs_reporoot/Patches/bison-3.5-reactos-fix-win32-build.patch"
 rs_bison_patch_sha256="1dc81140c60cc69056a5a4bbfe61a874db8ae5cd9f89df72f80f114dfecb9802"
-rs_bison_prepare="rs_prepare_bison"
 
 rs_cmake_archive="cmake-3.17.2-07c58033.zip"
 rs_cmake_url="https://github.com/reactos/CMake/archive/07c58033.zip"
@@ -50,7 +43,6 @@ rs_cmake_sha256="243e3d48b1af2bc9db9acab709f702031f15f39124720c2d3dae2d16b73074f
 rs_flex_archive="flex-2.6.4-8b1fbf67.zip"
 rs_flex_url="https://github.com/westes/flex/archive/8b1fbf67.zip"
 rs_flex_sha256="1455ecf338ad889e8003aa0dc255f883a3f5c2e97a2ac0bedd9034d333ec6c07"
-rs_flex_prepare="rs_prepare_flex"
 
 rs_gcc_archive="gcc-8.4.0.tar.xz"
 rs_gcc_url="https://ftp.gnu.org/gnu/gcc/gcc-8.4.0/$rs_gcc_archive"
@@ -61,7 +53,6 @@ rs_gmp_url="https://ftp.gnu.org/gnu/gmp/$rs_gmp_archive"
 rs_gmp_sha256="258e6cd51b3fbdfc185c716d55f82c08aff57df0c6fbd143cf6ed561267a1526"
 rs_gmp_patch="$rs_reporoot/Patches/GMP-6.2.0-C89-fixes.patch"
 rs_gmp_patch_sha256="83652d4cd41efa860dcd7557994c8b9c18e2cc7ba0476dcffd46fa09197fbaf2"
-rs_gmp_prepare="rs_prepare_gmp"
 
 rs_mingw_w64_archive="mingw-w64-v6.0.0.tar.bz2"
 rs_mingw_w64_url="https://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/$rs_mingw_w64_archive"
@@ -202,57 +193,6 @@ rs_apply_patch()
 	patch -d "$rs_source_dir" -p1 < "$rs_patch" >> "$rs_workdir/build.log" 2>&1
 }
 
-rs_prepare_bison()
-{
-	local rs_source_dir="$1"
-
-	echo "Patching bison..."
-	rs_apply_patch "$rs_source_dir" "$rs_bison_patch"
-}
-
-rs_prepare_flex()
-{
-	local rs_source_dir="$1"
-	local rs_dist_dir="$rs_extracts_dir/flex-dist"
-	local rs_dist_archive=()
-	local rs_extracted_dist
-
-	echo "Running flex autogen.sh..."
-	(
-		cd "$rs_source_dir"
-		rs_do_command ./autogen.sh
-	)
-
-	echo "Running flex make dist..."
-	(
-		cd "$rs_source_dir"
-		rs_do_command "$rs_makecmd" dist
-	)
-
-	rs_dist_archive=("$rs_source_dir"/flex-*.tar.gz)
-
-	if [[ ${#rs_dist_archive[@]} -ne 1 ]]; then
-		echo "Unexpected flex dist output in \"$rs_source_dir\"" >> "$rs_workdir/build.log"
-		return 1
-	fi
-
-	rm -rf "$rs_dist_dir"
-	mkdir -p "$rs_dist_dir"
-	tar -C "$rs_dist_dir" -xzf "${rs_dist_archive[0]}" >> "$rs_workdir/build.log" 2>&1
-	rs_extracted_dist="$(rs_get_single_directory "$rs_dist_dir")"
-
-	rm -rf "$rs_source_dir"
-	mv "$rs_extracted_dist" "$rs_source_dir"
-}
-
-rs_prepare_gmp()
-{
-	local rs_source_dir="$1"
-
-	echo "Patching gmp..."
-	rs_apply_patch "$rs_source_dir" "$rs_gmp_patch"
-}
-
 rs_pack_source_archive()
 {
 	local rs_name="$1"
@@ -262,25 +202,26 @@ rs_pack_source_archive()
 	tar -C "$(dirname "$rs_source_dir")" -cjf "$rs_sources_dir/$rs_name.tar.bz2" "$(basename "$rs_source_dir")" >> "$rs_workdir/build.log" 2>&1
 }
 
-rs_prepare_source_archive()
+rs_extract_source_archive()
 {
 	local rs_name="$1"
 	local rs_archive="$2"
-	local rs_prepare_function="${3:-}"
 	local rs_source_dir="$rs_extracts_dir/$rs_name"
 	local rs_extract_dir="$rs_source_dir-src"
 	local rs_extracted_src
 
-	echo "Preparing $rs_name..."
 	rm -rf "$rs_extract_dir"
 	mkdir -p "$rs_extract_dir"
 	rs_extract_archive "$rs_downloads_dir/$rs_archive" "$rs_extract_dir"
 	rs_extracted_src="$(rs_get_single_directory "$rs_extract_dir")"
 	mv "$rs_extracted_src" "$rs_source_dir"
-	if [[ -n "$rs_prepare_function" ]]; then
-		"$rs_prepare_function" "$rs_source_dir"
-	fi
-	rs_pack_source_archive "$rs_name" "$rs_source_dir"
+}
+
+rs_prepare_source()
+{
+	local rs_name="$1"
+
+	echo "Preparing $rs_name..."
 }
 
 rs_verify_prepared_archive()
@@ -319,26 +260,16 @@ rs_check_required_tools
 #
 # Download the upstream sources and verify all hashes
 #
-rs_source_names=(
-    binutils
-    bison
-    cmake
-    flex
-    gcc
-    gmp
-    mingw_w64
-    mpc
-    mpfr
-    ninja
-)
-
-for rs_name in "${rs_source_names[@]}"; do
-    declare -n rs_archive="rs_${rs_name}_archive"
-    declare -n rs_url="rs_${rs_name}_url"
-    declare -n rs_sha256="rs_${rs_name}_sha256"
-    rs_download_archive "$rs_name" "$rs_url" "$rs_archive" "$rs_sha256"
-    unset -n rs_archive rs_url rs_sha256
-done
+rs_download_archive "binutils"  "$rs_binutils_url"   "$rs_binutils_archive"  "$rs_binutils_sha256"
+rs_download_archive "bison"     "$rs_bison_url"      "$rs_bison_archive"     "$rs_bison_sha256"
+rs_download_archive "cmake"     "$rs_cmake_url"      "$rs_cmake_archive"     "$rs_cmake_sha256"
+rs_download_archive "flex"      "$rs_flex_url"       "$rs_flex_archive"      "$rs_flex_sha256"
+rs_download_archive "gcc"       "$rs_gcc_url"        "$rs_gcc_archive"       "$rs_gcc_sha256"
+rs_download_archive "gmp"       "$rs_gmp_url"        "$rs_gmp_archive"       "$rs_gmp_sha256"
+rs_download_archive "mingw_w64" "$rs_mingw_w64_url"  "$rs_mingw_w64_archive" "$rs_mingw_w64_sha256"
+rs_download_archive "mpc"       "$rs_mpc_url"        "$rs_mpc_archive"       "$rs_mpc_sha256"
+rs_download_archive "mpfr"      "$rs_mpfr_url"       "$rs_mpfr_archive"      "$rs_mpfr_sha256"
+rs_download_archive "ninja"     "$rs_ninja_url"      "$rs_ninja_archive"     "$rs_ninja_sha256"
 rs_add_checksum "$rs_bison_patch_sha256" "$rs_bison_patch"
 rs_add_checksum "$rs_gmp_patch_sha256" "$rs_gmp_patch"
 rs_verify_downloads
@@ -347,12 +278,81 @@ rs_verify_downloads
 #
 # Prepare and repack the RosBE source archives
 #
-for rs_name in "${rs_source_names[@]}"; do
-    declare -n rs_archive="rs_${rs_name}_archive"
-    declare -n rs_prepare="rs_${rs_name}_prepare"
-    rs_prepare_source_archive "$rs_name" "$rs_archive" "${rs_prepare:-}"
-    unset -n rs_archive rs_prepare
-done
+if rs_prepare_source "binutils"; then
+	rs_extract_source_archive "binutils" "$rs_binutils_archive"
+	rs_pack_source_archive    "binutils" "$rs_extracts_dir/binutils"
+fi
+
+if rs_prepare_source "bison"; then
+	rs_extract_source_archive "bison" "$rs_bison_archive"
+	echo "Patching bison..."
+	rs_apply_patch "$rs_extracts_dir/bison" "$rs_bison_patch"
+	rs_pack_source_archive "bison" "$rs_extracts_dir/bison"
+fi
+
+if rs_prepare_source "cmake"; then
+	rs_extract_source_archive "cmake" "$rs_cmake_archive"
+	rs_pack_source_archive    "cmake" "$rs_extracts_dir/cmake"
+fi
+
+if rs_prepare_source "flex"; then
+	rs_extract_source_archive "flex" "$rs_flex_archive"
+	echo "Running flex autogen.sh..."
+	(
+		cd "$rs_extracts_dir/flex"
+		rs_do_command ./autogen.sh
+	)
+	echo "Running flex make dist..."
+	(
+		cd "$rs_extracts_dir/flex"
+		rs_do_command "$rs_makecmd" dist
+	)
+	rs_flex_dist_archive=("$rs_extracts_dir/flex"/flex-*.tar.gz)
+	if [[ ${#rs_flex_dist_archive[@]} -ne 1 ]]; then
+		echo "Unexpected flex dist output in \"$rs_extracts_dir/flex\"" >> "$rs_workdir/build.log"
+		exit 1
+	fi
+	rs_flex_dist_dir="$rs_extracts_dir/flex-dist"
+	rm -rf "$rs_flex_dist_dir"
+	mkdir -p "$rs_flex_dist_dir"
+	tar -C "$rs_flex_dist_dir" -xzf "${rs_flex_dist_archive[0]}" >> "$rs_workdir/build.log" 2>&1
+	rs_flex_extracted_dist="$(rs_get_single_directory "$rs_flex_dist_dir")"
+	rm -rf "$rs_extracts_dir/flex"
+	mv "$rs_flex_extracted_dist" "$rs_extracts_dir/flex"
+	rs_pack_source_archive "flex" "$rs_extracts_dir/flex"
+fi
+
+if rs_prepare_source "gcc"; then
+	rs_extract_source_archive "gcc" "$rs_gcc_archive"
+	rs_pack_source_archive    "gcc" "$rs_extracts_dir/gcc"
+fi
+
+if rs_prepare_source "gmp"; then
+	rs_extract_source_archive "gmp" "$rs_gmp_archive"
+	echo "Patching gmp..."
+	rs_apply_patch "$rs_extracts_dir/gmp" "$rs_gmp_patch"
+	rs_pack_source_archive "gmp" "$rs_extracts_dir/gmp"
+fi
+
+if rs_prepare_source "mingw_w64"; then
+	rs_extract_source_archive "mingw_w64" "$rs_mingw_w64_archive"
+	rs_pack_source_archive    "mingw_w64" "$rs_extracts_dir/mingw_w64"
+fi
+
+if rs_prepare_source "mpc"; then
+	rs_extract_source_archive "mpc" "$rs_mpc_archive"
+	rs_pack_source_archive    "mpc" "$rs_extracts_dir/mpc"
+fi
+
+if rs_prepare_source "mpfr"; then
+	rs_extract_source_archive "mpfr" "$rs_mpfr_archive"
+	rs_pack_source_archive    "mpfr" "$rs_extracts_dir/mpfr"
+fi
+
+if rs_prepare_source "ninja"; then
+	rs_extract_source_archive "ninja" "$rs_ninja_archive"
+	rs_pack_source_archive    "ninja" "$rs_extracts_dir/ninja"
+fi
 
 
 #
@@ -365,9 +365,16 @@ printf '%%PDF-1.4\n%%%%EOF\n' > "$rs_scriptdir/Base-i386/README.pdf"
 #
 # Verify the prepared archives
 #
-for rs_name in "${rs_source_names[@]}"; do
-    rs_verify_prepared_archive "$rs_name"
-done
+rs_verify_prepared_archive "binutils"
+rs_verify_prepared_archive "bison"
+rs_verify_prepared_archive "cmake"
+rs_verify_prepared_archive "flex"
+rs_verify_prepared_archive "gcc"
+rs_verify_prepared_archive "gmp"
+rs_verify_prepared_archive "mingw_w64"
+rs_verify_prepared_archive "mpc"
+rs_verify_prepared_archive "mpfr"
+rs_verify_prepared_archive "ninja"
 
 echo
 echo "Done."
