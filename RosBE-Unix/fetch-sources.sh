@@ -89,11 +89,6 @@ rs_show_failure()
 
 trap rs_show_failure ERR
 
-rs_add_checksum()
-{
-	printf '%s *%s\n' "$1" "$2" >> "$rs_checksum_file"
-}
-
 rs_check_required_tools()
 {
 	local rs_tool
@@ -142,7 +137,7 @@ rs_download_archive()
 		--output "$rs_downloads_dir/$rs_archive" \
 		"$rs_url" >> "$rs_workdir/build.log" 2>&1
 
-	rs_add_checksum "$rs_sha256" "$rs_downloads_dir/$rs_archive"
+	printf '%s *%s\n' "$rs_sha256" "$rs_downloads_dir/$rs_archive" >> "$rs_checksum_file"
 }
 
 rs_verify_downloads()
@@ -151,21 +146,13 @@ rs_verify_downloads()
 	sha256sum -c "$rs_checksum_file" >> "$rs_workdir/build.log" 2>&1
 }
 
-rs_extract_archive()
+rs_pack_source_archive()
 {
-	local rs_archive="$1"
-	local rs_target_dir="$2"
+	local rs_name="$1"
+	local rs_source_dir="$2"
 
-	mkdir -p "$rs_target_dir"
-
-	case "$rs_archive" in
-		*.zip)
-			unzip -q "$rs_archive" -d "$rs_target_dir" >> "$rs_workdir/build.log" 2>&1
-			;;
-		*)
-			tar -C "$rs_target_dir" -xf "$rs_archive" >> "$rs_workdir/build.log" 2>&1
-			;;
-	esac
+	echo "Packing $rs_name..."
+	tar -C "$(dirname "$rs_source_dir")" -cjf "$rs_sources_dir/$rs_name.tar.bz2" "$(basename "$rs_source_dir")" >> "$rs_workdir/build.log" 2>&1
 }
 
 rs_get_single_directory()
@@ -183,24 +170,7 @@ rs_get_single_directory()
 	printf '%s\n' "${rs_entries[0]}"
 }
 
-rs_apply_patch()
-{
-	local rs_source_dir="$1"
-	local rs_patch="$2"
-
-	patch -d "$rs_source_dir" -p1 < "$rs_patch" >> "$rs_workdir/build.log" 2>&1
-}
-
-rs_pack_source_archive()
-{
-	local rs_name="$1"
-	local rs_source_dir="$2"
-
-	echo "Packing $rs_name..."
-	tar -C "$(dirname "$rs_source_dir")" -cjf "$rs_sources_dir/$rs_name.tar.bz2" "$(basename "$rs_source_dir")" >> "$rs_workdir/build.log" 2>&1
-}
-
-rs_extract_source_archive()
+rs_prepare_source()
 {
 	local rs_name="$1"
 	local rs_archive="$2"
@@ -208,18 +178,19 @@ rs_extract_source_archive()
 	local rs_extract_dir="$rs_source_dir-src"
 	local rs_extracted_src
 
+	echo "Preparing $rs_name..."
 	rm -rf "$rs_extract_dir"
 	mkdir -p "$rs_extract_dir"
-	rs_extract_archive "$rs_downloads_dir/$rs_archive" "$rs_extract_dir"
+	case "$rs_downloads_dir/$rs_archive" in
+		*.zip)
+			unzip -q "$rs_downloads_dir/$rs_archive" -d "$rs_extract_dir" >> "$rs_workdir/build.log" 2>&1
+			;;
+		*)
+			tar -C "$rs_extract_dir" -xf "$rs_downloads_dir/$rs_archive" >> "$rs_workdir/build.log" 2>&1
+			;;
+	esac
 	rs_extracted_src="$(rs_get_single_directory "$rs_extract_dir")"
 	mv "$rs_extracted_src" "$rs_source_dir"
-}
-
-rs_prepare_source()
-{
-	local rs_name="$1"
-
-	echo "Preparing $rs_name..."
 }
 
 
@@ -256,25 +227,21 @@ rs_verify_downloads
 #
 # Prepare and repack the RosBE source archives
 #
-if rs_prepare_source "binutils"; then
-	rs_extract_source_archive "binutils" "$rs_binutils_archive"
-	rs_pack_source_archive    "binutils" "$rs_extracts_dir/binutils"
+if rs_prepare_source "binutils" "$rs_binutils_archive"; then
+	rs_pack_source_archive "binutils" "$rs_extracts_dir/binutils"
 fi
 
-if rs_prepare_source "bison"; then
-	rs_extract_source_archive "bison" "$rs_bison_archive"
+if rs_prepare_source "bison" "$rs_bison_archive"; then
 	echo "Patching bison..."
-	rs_apply_patch "$rs_extracts_dir/bison" "$rs_bison_patch"
+	patch -d "$rs_extracts_dir/bison" -p1 < "$rs_bison_patch" >> "$rs_workdir/build.log" 2>&1
 	rs_pack_source_archive "bison" "$rs_extracts_dir/bison"
 fi
 
-if rs_prepare_source "cmake"; then
-	rs_extract_source_archive "cmake" "$rs_cmake_archive"
-	rs_pack_source_archive    "cmake" "$rs_extracts_dir/cmake"
+if rs_prepare_source "cmake" "$rs_cmake_archive"; then
+	rs_pack_source_archive "cmake" "$rs_extracts_dir/cmake"
 fi
 
-if rs_prepare_source "flex"; then
-	rs_extract_source_archive "flex" "$rs_flex_archive"
+if rs_prepare_source "flex" "$rs_flex_archive"; then
 	echo "Running flex autogen.sh..."
 	(
 		cd "$rs_extracts_dir/flex"
@@ -300,46 +267,39 @@ if rs_prepare_source "flex"; then
 	rs_pack_source_archive "flex" "$rs_extracts_dir/flex"
 fi
 
-if rs_prepare_source "gcc"; then
-	rs_extract_source_archive "gcc" "$rs_gcc_archive"
-	rs_pack_source_archive    "gcc" "$rs_extracts_dir/gcc"
+if rs_prepare_source "gcc" "$rs_gcc_archive"; then
+	rs_pack_source_archive "gcc" "$rs_extracts_dir/gcc"
 fi
 
-if rs_prepare_source "gmp"; then
-	rs_extract_source_archive "gmp" "$rs_gmp_archive"
+if rs_prepare_source "gmp" "$rs_gmp_archive"; then
 	echo "Patching gmp..."
-	rs_apply_patch "$rs_extracts_dir/gmp" "$rs_gmp_patch"
+	patch -d "$rs_extracts_dir/gmp" -p1 < "$rs_gmp_patch" >> "$rs_workdir/build.log" 2>&1
 	rs_pack_source_archive "gmp" "$rs_extracts_dir/gmp"
 fi
 
-if rs_prepare_source "mingw_w64"; then
-	rs_extract_source_archive "mingw_w64" "$rs_mingw_w64_archive"
-	rs_pack_source_archive    "mingw_w64" "$rs_extracts_dir/mingw_w64"
+if rs_prepare_source "mingw_w64" "$rs_mingw_w64_archive"; then
+	rs_pack_source_archive "mingw_w64" "$rs_extracts_dir/mingw_w64"
 fi
 
-if rs_prepare_source "mpc"; then
-	rs_extract_source_archive "mpc" "$rs_mpc_archive"
-	rs_pack_source_archive    "mpc" "$rs_extracts_dir/mpc"
+if rs_prepare_source "mpc" "$rs_mpc_archive"; then
+	rs_pack_source_archive "mpc" "$rs_extracts_dir/mpc"
 fi
 
-if rs_prepare_source "mpfr"; then
-	rs_extract_source_archive "mpfr" "$rs_mpfr_archive"
-	rs_pack_source_archive    "mpfr" "$rs_extracts_dir/mpfr"
+if rs_prepare_source "mpfr" "$rs_mpfr_archive"; then
+	rs_pack_source_archive "mpfr" "$rs_extracts_dir/mpfr"
 fi
 
-if rs_prepare_source "ninja"; then
-	rs_extract_source_archive "ninja" "$rs_ninja_archive"
-	rs_pack_source_archive    "ninja" "$rs_extracts_dir/ninja"
+if rs_prepare_source "ninja" "$rs_ninja_archive"; then
+	rs_pack_source_archive "ninja" "$rs_extracts_dir/ninja"
 fi
 
 
 #
 # Create the required README.pdf placeholder
-# TODO: Move this step to makepackage.sh once it gains direct source preparation support.
+# TODO: Move this step to makepackage.sh, e.g. by running LibreOffice to convert README to PDF there.
 #
 echo "Creating README.pdf placeholder..."
 printf '%%PDF-1.4\n%%%%EOF\n' > "$rs_scriptdir/Base-i386/README.pdf"
-
 
 echo
 echo "Done."
