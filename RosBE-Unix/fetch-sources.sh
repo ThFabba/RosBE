@@ -34,7 +34,6 @@ rs_bison_archive="bison-3.5.4.tar.gz"
 rs_bison_url="https://ftp.gnu.org/gnu/bison/$rs_bison_archive"
 rs_bison_sha256="c0dd154dfaba63553a892d41dc400c7baa88cc06a1e2e27813fdd503715e4c28"
 rs_bison_patch="$rs_reporoot/Patches/bison-3.5-reactos-fix-win32-build.patch"
-rs_bison_patch_sha256="1dc81140c60cc69056a5a4bbfe61a874db8ae5cd9f89df72f80f114dfecb9802"
 
 rs_cmake_archive="cmake-3.17.2-07c58033.zip"
 rs_cmake_url="https://github.com/reactos/CMake/archive/07c58033.zip"
@@ -52,7 +51,6 @@ rs_gmp_archive="gmp-6.2.0.tar.xz"
 rs_gmp_url="https://ftp.gnu.org/gnu/gmp/$rs_gmp_archive"
 rs_gmp_sha256="258e6cd51b3fbdfc185c716d55f82c08aff57df0c6fbd143cf6ed561267a1526"
 rs_gmp_patch="$rs_reporoot/Patches/GMP-6.2.0-C89-fixes.patch"
-rs_gmp_patch_sha256="83652d4cd41efa860dcd7557994c8b9c18e2cc7ba0476dcffd46fa09197fbaf2"
 
 rs_mingw_w64_archive="mingw-w64-v6.0.0.tar.bz2"
 rs_mingw_w64_url="https://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/$rs_mingw_w64_archive"
@@ -224,24 +222,6 @@ rs_prepare_source()
 	echo "Preparing $rs_name..."
 }
 
-rs_verify_prepared_archive()
-{
-	local rs_name="$1"
-	local rs_verify_dir="$rs_workdir/verify-$rs_name"
-	local rs_top_dir
-
-	echo "Checking $rs_name archive..."
-	rm -rf "$rs_verify_dir"
-	mkdir -p "$rs_verify_dir"
-	tar -C "$rs_verify_dir" -xjf "$rs_sources_dir/$rs_name.tar.bz2" >> "$rs_workdir/build.log" 2>&1
-	rs_top_dir="$(rs_get_single_directory "$rs_verify_dir")"
-
-	if [[ "$(basename "$rs_top_dir")" != "$rs_name" ]]; then
-		echo "Archive \"$rs_sources_dir/$rs_name.tar.bz2\" extracted to \"$(basename "$rs_top_dir")\" instead of \"$rs_name\"" >> "$rs_workdir/build.log"
-		return 1
-	fi
-}
-
 
 #
 # Prepare the working directories
@@ -270,8 +250,6 @@ rs_download_archive "mingw_w64" "$rs_mingw_w64_url"  "$rs_mingw_w64_archive" "$r
 rs_download_archive "mpc"       "$rs_mpc_url"        "$rs_mpc_archive"       "$rs_mpc_sha256"
 rs_download_archive "mpfr"      "$rs_mpfr_url"       "$rs_mpfr_archive"      "$rs_mpfr_sha256"
 rs_download_archive "ninja"     "$rs_ninja_url"      "$rs_ninja_archive"     "$rs_ninja_sha256"
-rs_add_checksum "$rs_bison_patch_sha256" "$rs_bison_patch"
-rs_add_checksum "$rs_gmp_patch_sha256" "$rs_gmp_patch"
 rs_verify_downloads
 
 
@@ -357,24 +335,11 @@ fi
 
 #
 # Create the required README.pdf placeholder
+# TODO: Move this step to makepackage.sh once it gains direct source preparation support.
 #
 echo "Creating README.pdf placeholder..."
 printf '%%PDF-1.4\n%%%%EOF\n' > "$rs_scriptdir/Base-i386/README.pdf"
 
-
-#
-# Verify the prepared archives
-#
-rs_verify_prepared_archive "binutils"
-rs_verify_prepared_archive "bison"
-rs_verify_prepared_archive "cmake"
-rs_verify_prepared_archive "flex"
-rs_verify_prepared_archive "gcc"
-rs_verify_prepared_archive "gmp"
-rs_verify_prepared_archive "mingw_w64"
-rs_verify_prepared_archive "mpc"
-rs_verify_prepared_archive "mpfr"
-rs_verify_prepared_archive "ninja"
 
 echo
 echo "Done."
