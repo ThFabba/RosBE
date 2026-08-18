@@ -20,41 +20,9 @@ rs_boldmsg()
 	echo -e $2 "\033[1m$1\033[0m"
 }
 
-# Check for several requirements, which need to be met in order to run the installation script properly
-rs_check_requirements()
+# Check if all needed tools exist
+rs_check_needed_tools()
 {
-	# Check for the processor architecture
-	local cpuarch=`uname -m`
-	case "$cpuarch" in
-		"i686")
-			rs_abi=32
-			;;
-		"x86_64" | "amd64")
-			rs_abi=64
-			;;
-		*)
-			echo "Your processor architecture is not supported by RosBE-Unix!"
-			exit 1;;
-	esac
-
-	# Test if the script directory is writable
-	if [ ! -w "$rs_scriptdir" ]; then
-		rs_redmsg "The script directory \"$rs_scriptdir\" is not writable, aborted!"
-		exit 1
-	fi
-
-	# Test if the script directory contains spaces
-	case "$rs_scriptdir" in
-	*" "*)
-		rs_redmsg "The script directory \"$rs_scriptdir\" contains spaces!"
-		rs_redmsg "Therefore some build tools cannot be compiled properly."
-		echo
-		rs_redmsg "Please move \"$rs_scriptdir\" to a directory, which does not contain spaces."
-
-		exit 1;;
-	esac
-
-	# Check if all necessary tools exist
 	rs_boldmsg "Checking for the needed tools..."
 
 	local toolmissing=false
@@ -90,9 +58,55 @@ rs_check_requirements()
 		toolmissing=true
 	fi
 
+	if $toolmissing; then
+		echo "At least one needed tool is missing, aborted!"
+		exit 1
+	fi
+
+	echo
+}
+
+# Check for several requirements, which need to be met in order to run the installation script properly
+rs_check_requirements()
+{
+	# Check for the processor architecture
+	local cpuarch=`uname -m`
+	case "$cpuarch" in
+		"i686")
+			rs_abi=32
+			;;
+		"x86_64" | "amd64")
+			rs_abi=64
+			;;
+		*)
+			echo "Your processor architecture is not supported by RosBE-Unix!"
+			exit 1;;
+	esac
+
+	# Test if the script directory is writable
+	if [ ! -w "$rs_scriptdir" ]; then
+		rs_redmsg "The script directory \"$rs_scriptdir\" is not writable, aborted!"
+		exit 1
+	fi
+
+	# Test if the script directory contains spaces
+	case "$rs_scriptdir" in
+	*" "*)
+		rs_redmsg "The script directory \"$rs_scriptdir\" contains spaces!"
+		rs_redmsg "Therefore some build tools cannot be compiled properly."
+		echo
+		rs_redmsg "Please move \"$rs_scriptdir\" to a directory, which does not contain spaces."
+
+		exit 1;;
+	esac
+
+	rs_check_needed_tools
+
 	# Check for libs
 	# Skip that part on OSX and MSYS
 	if [ "`uname`" != "Darwin" ] && [ "`uname -o`" != "Msys" ]; then
+		local toolmissing=false
+
 		# pkg-config needs to be installed to check for libs
 		echo -n "Checking for pkg-config... "
 
@@ -117,14 +131,14 @@ rs_check_requirements()
 				toolmissing=true
 			fi
 		done
-	fi
 
-	if $toolmissing; then
-		echo "At least one needed tool is missing, aborted!"
-		exit 1
-	fi
+		if $toolmissing; then
+			echo "At least one needed tool is missing, aborted!"
+			exit 1
+		fi
 
-	echo
+		echo
+	fi
 }
 
 # Check whether the previous command finished with errorlevel 0

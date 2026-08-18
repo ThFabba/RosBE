@@ -89,36 +89,7 @@ rs_show_failure()
 
 trap rs_show_failure ERR
 
-rs_check_required_tools()
-{
-	local rs_tool
-
-	echo "Checking for the needed tools..."
-	for rs_tool in autoconf automake curl grep help2man patch sha256sum tar unzip xz zip; do
-		echo -n "Checking for $rs_tool... "
-		if command -v "$rs_tool" >/dev/null 2>&1; then
-			rs_greenmsg "OK"
-		else
-			rs_redmsg "MISSING"
-			echo "At least one needed tool is missing, aborted!"
-			exit 1
-		fi
-	done
-
-	echo -n "Checking for GNU Make... "
-	for rs_tool in make gmake; do
-		if command -v "$rs_tool" >/dev/null 2>&1 && "$rs_tool" -v 2>&1 | grep "GNU Make" >/dev/null; then
-			rs_makecmd="$rs_tool"
-			rs_greenmsg "OK"
-			echo
-			return 0
-		fi
-	done
-
-	rs_redmsg "MISSING"
-	echo "At least one needed tool is missing, aborted!"
-	exit 1
-}
+rs_needed_tools="autoconf automake curl grep help2man patch sha256sum tar unzip xz zip"
 
 rs_download_archive()
 {
@@ -155,28 +126,13 @@ rs_pack_source_archive()
 	tar -C "$(dirname "$rs_source_dir")" -cjf "$rs_sources_dir/$rs_name.tar.bz2" "$(basename "$rs_source_dir")" >> "$rs_workdir/build.log" 2>&1
 }
 
-rs_get_single_directory()
-{
-	local rs_dir="$1"
-	local rs_entries=()
-
-	rs_entries=("$rs_dir"/*)
-
-	if [[ ${#rs_entries[@]} -ne 1 || ! -d "${rs_entries[0]}" ]]; then
-		echo "Unexpected archive layout in \"$rs_dir\"" >> "$rs_workdir/build.log"
-		return 1
-	fi
-
-	printf '%s\n' "${rs_entries[0]}"
-}
-
 rs_prepare_source()
 {
 	local rs_name="$1"
 	local rs_archive="$2"
 	local rs_source_dir="$rs_extracts_dir/$rs_name"
 	local rs_extract_dir="$rs_source_dir-src"
-	local rs_extracted_src
+	local rs_entries=()
 
 	echo "Preparing $rs_name..."
 	rm -rf "$rs_extract_dir"
@@ -189,8 +145,12 @@ rs_prepare_source()
 			tar -C "$rs_extract_dir" -xf "$rs_downloads_dir/$rs_archive" >> "$rs_workdir/build.log" 2>&1
 			;;
 	esac
-	rs_extracted_src="$(rs_get_single_directory "$rs_extract_dir")"
-	mv "$rs_extracted_src" "$rs_source_dir"
+	rs_entries=("$rs_extract_dir"/*)
+	if [[ ${#rs_entries[@]} -ne 1 || ! -d "${rs_entries[0]}" ]]; then
+		echo "Unexpected archive layout in \"$rs_extract_dir\"" >> "$rs_workdir/build.log"
+		return 1
+	fi
+	mv "${rs_entries[0]}" "$rs_source_dir"
 }
 
 
@@ -205,7 +165,7 @@ rm -f "$rs_scriptdir/Base-i386/README.pdf"
 : > "$rs_workdir/build.log"
 : > "$rs_checksum_file"
 
-rs_check_required_tools
+rs_check_needed_tools
 
 
 #
@@ -261,9 +221,13 @@ if rs_prepare_source "flex" "$rs_flex_archive"; then
 	rm -rf "$rs_flex_dist_dir"
 	mkdir -p "$rs_flex_dist_dir"
 	tar -C "$rs_flex_dist_dir" -xzf "${rs_flex_dist_archive[0]}" >> "$rs_workdir/build.log" 2>&1
-	rs_flex_extracted_dist="$(rs_get_single_directory "$rs_flex_dist_dir")"
+	rs_flex_dist_entries=("$rs_flex_dist_dir"/*)
+	if [[ ${#rs_flex_dist_entries[@]} -ne 1 || ! -d "${rs_flex_dist_entries[0]}" ]]; then
+		echo "Unexpected flex dist layout in \"$rs_flex_dist_dir\"" >> "$rs_workdir/build.log"
+		exit 1
+	fi
 	rm -rf "$rs_extracts_dir/flex"
-	mv "$rs_flex_extracted_dist" "$rs_extracts_dir/flex"
+	mv "${rs_flex_dist_entries[0]}" "$rs_extracts_dir/flex"
 	rs_pack_source_archive "flex" "$rs_extracts_dir/flex"
 fi
 
@@ -299,7 +263,7 @@ fi
 # TODO: Move this step to makepackage.sh, e.g. by running LibreOffice to convert README to PDF there.
 #
 echo "Creating README.pdf placeholder..."
-printf '%%PDF-1.4\n%%%%EOF\n' > "$rs_scriptdir/Base-i386/README.pdf"
+printf '%%PDF-1.4\n%%%%EOF\n' > "${rs_scriptdir}/Base-i386/README.pdf"
 
 echo
 echo "Done."
