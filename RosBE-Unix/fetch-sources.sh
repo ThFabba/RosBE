@@ -111,10 +111,19 @@ rs_download_archive()
 	printf '%s *%s\n' "$rs_sha256" "$rs_downloads_dir/$rs_archive" >> "$rs_checksum_file"
 }
 
-rs_verify_downloads()
+rs_get_single_directory()
 {
-	echo "Verifying hashes..."
-	sha256sum -c "$rs_checksum_file" >> "$rs_workdir/build.log" 2>&1
+	local rs_dir="$1"
+	local rs_entries=()
+
+	rs_entries=("$rs_dir"/*)
+
+	if [[ ${#rs_entries[@]} -ne 1 || ! -d "${rs_entries[0]}" ]]; then
+		echo "Unexpected archive layout in \"$rs_dir\"" >> "$rs_workdir/build.log"
+		return 1
+	fi
+
+	printf '%s\n' "${rs_entries[0]}"
 }
 
 rs_pack_source_archive()
@@ -132,7 +141,6 @@ rs_prepare_source()
 	local rs_archive="$2"
 	local rs_source_dir="$rs_extracts_dir/$rs_name"
 	local rs_extract_dir="$rs_source_dir-src"
-	local rs_entries=()
 
 	echo "Preparing $rs_name..."
 	rm -rf "$rs_extract_dir"
@@ -145,12 +153,7 @@ rs_prepare_source()
 			tar -C "$rs_extract_dir" -xf "$rs_downloads_dir/$rs_archive" >> "$rs_workdir/build.log" 2>&1
 			;;
 	esac
-	rs_entries=("$rs_extract_dir"/*)
-	if [[ ${#rs_entries[@]} -ne 1 || ! -d "${rs_entries[0]}" ]]; then
-		echo "Unexpected archive layout in \"$rs_extract_dir\"" >> "$rs_workdir/build.log"
-		return 1
-	fi
-	mv "${rs_entries[0]}" "$rs_source_dir"
+	mv "$(rs_get_single_directory "$rs_extract_dir")" "$rs_source_dir"
 }
 
 
@@ -181,7 +184,8 @@ rs_download_archive "mingw_w64" "$rs_mingw_w64_url"  "$rs_mingw_w64_archive" "$r
 rs_download_archive "mpc"       "$rs_mpc_url"        "$rs_mpc_archive"       "$rs_mpc_sha256"
 rs_download_archive "mpfr"      "$rs_mpfr_url"       "$rs_mpfr_archive"      "$rs_mpfr_sha256"
 rs_download_archive "ninja"     "$rs_ninja_url"      "$rs_ninja_archive"     "$rs_ninja_sha256"
-rs_verify_downloads
+echo "Verifying hashes..."
+sha256sum -c "$rs_checksum_file" >> "$rs_workdir/build.log" 2>&1
 
 
 #
@@ -221,13 +225,8 @@ if rs_prepare_source "flex" "$rs_flex_archive"; then
 	rm -rf "$rs_flex_dist_dir"
 	mkdir -p "$rs_flex_dist_dir"
 	tar -C "$rs_flex_dist_dir" -xzf "${rs_flex_dist_archive[0]}" >> "$rs_workdir/build.log" 2>&1
-	rs_flex_dist_entries=("$rs_flex_dist_dir"/*)
-	if [[ ${#rs_flex_dist_entries[@]} -ne 1 || ! -d "${rs_flex_dist_entries[0]}" ]]; then
-		echo "Unexpected flex dist layout in \"$rs_flex_dist_dir\"" >> "$rs_workdir/build.log"
-		exit 1
-	fi
 	rm -rf "$rs_extracts_dir/flex"
-	mv "${rs_flex_dist_entries[0]}" "$rs_extracts_dir/flex"
+	mv "$(rs_get_single_directory "$rs_flex_dist_dir")" "$rs_extracts_dir/flex"
 	rs_pack_source_archive "flex" "$rs_extracts_dir/flex"
 fi
 
