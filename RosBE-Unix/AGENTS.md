@@ -71,11 +71,11 @@ choose the validation depth appropriate for a given PR.
 - [x] `makepackage.sh` exists and works
 - [x] `RosBE-Builder.sh` exists and works
 - [x] Agent guidance documentation (this file)
-- [ ] `fetch-sources.sh` — initial implementation in place (SVN download of pre-built archives + README.pdf placeholder); upstream-fetch logic and hash verification pending for Next Action 4
+- [x] `fetch-sources.sh` — downloads upstream tarballs/zip snapshots, verifies SHA-256 hashes (including the local patch files), applies the Bison and GMP patches, runs flex `autogen.sh` + `make dist`, repacks all archives into `Base-i386/sources/`, verifies each archive extracts to the expected top-level directory, and recreates the required `README.pdf` placeholder; CI workflows now install the source-preparation prerequisites before running it
 - [x] `cmake.patch` — committed to `RosBE-Unix/cmake.patch`
 - [x] `compare-packages.sh` — created; compares source archives and non-source files with per-tool exclusions using `diff -ru`; outputs full diffs on failure; optional CI job in `rosbe-unix-validate.yml` (label-triggered via `ci: compare-packages`)
-- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (builds from pre-built sources via `fetch-sources.sh`, installs, uploads generated package as artifact; conditional `compare-packages` job added with `ci: compare-packages` PR label; Next Actions 1, 2 & 3)
-- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-build-reactos.yml` (full ReactOS build using the same packaged toolchain; manual trigger)
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-validate.yml` (runs `fetch-sources.sh` against upstream sources, builds and installs the generated package, uploads it as an artifact, and optionally runs `compare-packages.sh` via the `ci: compare-packages` PR label; covers Next Actions 1, 2, 3 & 4)
+- [x] GitHub Actions CI workflow — `.github/workflows/rosbe-unix-build-reactos.yml` (full ReactOS build using the same `fetch-sources.sh` → `makepackage.sh` → install pipeline; manual trigger)
 
 
 ## Next Actions
@@ -474,6 +474,44 @@ upstream RosBE repository.
 
 Record significant design decisions and their rationale here so future agents
 have context.  Add new entries at the top.
+
+---
+
+**2026-08 — Next Action 4: upstream fetch-sources.sh implementation
+(ci-work branch)**
+
+Replaced the `fetch-sources.sh` SVN-download stub with a full source-preparation
+pipeline:
+
+- Downloads the upstream archives directly from GNU mirrors, SourceForge, and
+  GitHub (ReactOS CMake fork, flex, ninja).
+- Verifies the SHA-256 hashes of every downloaded archive and of the two local
+  patch files (`bison-3.5-reactos-fix-win32-build.patch` and
+  `GMP-6.2.0-C89-fixes.patch`) using `sha256sum -c`.
+- Repackages each tool into the RosBE-Unix layout expected by
+  `RosBE-Builder.sh` (`binutils/`, `bison/`, `cmake/`, `flex/`, `gcc/`,
+  `gmp/`, `mingw_w64/`, `mpc/`, `mpfr/`, `ninja/` as the top-level
+  directories inside the `.tar.bz2` files).
+- Applies the Bison and GMP patches during preparation and runs flex's
+  `autogen.sh` + `make dist` before repacking.
+- Leaves the CMake source archive unpatched so that `compare-packages.sh`
+  continues to compare against the historical 2.2.1 release correctly; the
+  GCC-16-specific `cmake.patch` remains a later installation-time concern.
+- Performs a local post-pack verification step by extracting every generated
+  `.tar.bz2` and checking that it unpacks to the expected top-level directory.
+
+CI updates for this step:
+
+- `rosbe-unix-validate.yml` and `rosbe-unix-build-reactos.yml` now install the
+  host tools needed by `fetch-sources.sh` (autoconf, automake, bison,
+  help2man, libtool, texinfo, unzip/zip, etc.) before running it.
+- Updated `RosBE-Unix/Base-i386/sources/Git-Readme.txt` to clarify that the
+  packaged CMake source archive stays unpatched.
+
+Validation in the agent sandbox was limited to static checks (`bash -n`,
+`shellcheck`) because the full end-to-end source downloads and toolchain build
+are too network- and time-heavy to complete reliably in this environment; CI is
+expected to provide the full integration validation for this PR.
 
 ---
 

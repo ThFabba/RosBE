@@ -1,8 +1,9 @@
 # Build ReactOS using a locally-packaged RosBE-Unix toolchain.
 #
-# This workflow is too slow for routine CI — it builds the toolchain from
-# pre-built sources (~60–90 minutes) and then performs a full ReactOS build
-# (~60–120 minutes), for a total wall time of roughly 2–3 hours.
+# This workflow is too slow for routine CI — it fetches upstream sources,
+# repacks them into RosBE-ready archives, builds the toolchain (~60–90
+# minutes), and then performs a full ReactOS build (~60–120 minutes), for a
+# total wall time of roughly 2–3 hours.
 #
 # Triggers:
 #
@@ -67,7 +68,10 @@ jobs:
         # Required so that the local composite actions are available on disk.
         uses: actions/checkout@v7
 
-      - name: Fetch pre-built source archives
+      - name: Install fetch-sources prerequisites
+        uses: ./.github/actions/fetch-sources-prereqs
+
+      - name: Fetch and prepare upstream source archives
         shell: bash
         working-directory: ${{ github.workspace }}/RosBE-Unix
         run: ./fetch-sources.sh

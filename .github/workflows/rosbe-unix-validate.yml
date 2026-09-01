@@ -1,7 +1,7 @@
 # Validate the RosBE-Unix packaging pipeline end-to-end.
 #
 # This workflow:
-#   - Downloads pre-built source archives from the ReactOS SVN mirror via
+#   - Downloads upstream sources and repacks them into RosBE-ready archives via
 #     RosBE-Unix/fetch-sources.sh.
 #   - Bundles them into a distributable package using makepackage.sh and
 #     uploads it as a downloadable artifact.
@@ -32,6 +32,7 @@ on:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
       - '.github/actions/download-rosbe/**'
+      - '.github/actions/fetch-sources-prereqs/**'
       - '.github/actions/install-rosbe/**'
   pull_request:
     types: [opened, synchronize, reopened, labeled]
@@ -39,6 +40,7 @@ on:
       - 'RosBE-Unix/**'
       - '.github/workflows/rosbe-unix-validate.yml'
       - '.github/actions/download-rosbe/**'
+      - '.github/actions/fetch-sources-prereqs/**'
       - '.github/actions/install-rosbe/**'
 
 permissions:
@@ -60,7 +62,10 @@ jobs:
         # Required so that the local composite actions are available on disk.
         uses: actions/checkout@v7
 
-      - name: Fetch pre-built source archives
+      - name: Install fetch-sources prerequisites
+        uses: ./.github/actions/fetch-sources-prereqs
+
+      - name: Fetch and prepare upstream source archives
         shell: bash
         working-directory: ${{ github.workspace }}/RosBE-Unix
         run: ./fetch-sources.sh
@@ -81,6 +86,14 @@ jobs:
         with:
           tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
           install_dir: ${{ env.ROSBE_INSTALL_DIR }}
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ github.workspace }}/RosBE-Unix/.fetch-sources-work/build.log
+          if-no-files-found: ignore
 
   compare-packages:
     name: Compare generated package against official release

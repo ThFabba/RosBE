@@ -8,7 +8,7 @@ contain the tool's source tree in a subdirectory named as follows:
 
 - binutils.tar.bz2   --> subdirectory "binutils"   (Binutils source)
 - bison.tar.bz2      --> subdirectory "bison"       (Bison source, patched)
-- cmake.tar.bz2      --> subdirectory "cmake"       (ReactOS CMake fork, patched)
+- cmake.tar.bz2      --> subdirectory "cmake"       (ReactOS CMake fork, unpatched in the archive)
 - flex.tar.bz2       --> subdirectory "flex"        (Flex source, after make dist)
 - gcc.tar.bz2        --> subdirectory "gcc"         (GCC source)
 - gmp.tar.bz2        --> subdirectory "gmp"         (GMP source, patched)
