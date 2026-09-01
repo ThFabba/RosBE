@@ -82,13 +82,18 @@ rs_show_failure()
 
 	echo
 	rs_redmsg "FAILED"
-	echo "Please take a look at the log file \"$rs_workdir/build.log\""
+	if [[ -s "$rs_workdir/build.log" ]]; then
+		echo "Last lines of \"$rs_workdir/build.log\":"
+		tail -20 "$rs_workdir/build.log"
+	fi
 	echo "Aborted!"
 	exit "$rs_status"
 }
 
 trap rs_show_failure ERR
 
+# rs_needed_tools is set here and consumed by rs_check_needed_tools in the sourced setuplibrary.sh.
+# shellcheck disable=SC2034
 rs_needed_tools="autoconf automake curl grep help2man patch sha256sum tar unzip xz zip"
 
 rs_download_archive()

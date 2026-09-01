@@ -87,6 +87,14 @@ jobs:
           tarball_path: ${{ github.workspace }}/RosBE-Unix/RosBE-Unix-${{ env.ROSBE_VERSION }}.tar.bz2
           install_dir: ${{ env.ROSBE_INSTALL_DIR }}
 
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ github.workspace }}/RosBE-Unix/.fetch-sources-work/build.log
+          if-no-files-found: ignore
+
   compare-packages:
     name: Compare generated package against official release
     needs: build-and-install-rosbe
